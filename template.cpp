@@ -9,9 +9,7 @@ auto main() -> int {
     auto t=int64_t{0};
     cin>>t;
     while(t--) {
-        auto n=int64_t{0};
-        cin>>n;
-
+        
     }
 
     return 0;
