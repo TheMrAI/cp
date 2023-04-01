@@ -13,7 +13,7 @@ auto ask(vector<int64_t>const& stone_sums) -> int64_t {
             cout << i << " ";
         }
         cout<<endl;
-        int sum;
+        auto sum=int64_t{0};
         cin>>sum;
         if (sum > (stone_sums[middle] - stone_sums[l-1])) {
             h = middle;
@@ -34,7 +34,7 @@ auto main() -> int {
         auto n=int64_t{0};
         cin>>n;
         auto stone_sums=vector<int64_t>(n+1, 0);
-        for(auto i=int64_t{1}; i<n; ++i) {
+        for(auto i=int64_t{1}; i<=n; ++i) {
             auto count=int64_t{};
             cin>>count;
             stone_sums[i] = stone_sums[i-1] + count;
