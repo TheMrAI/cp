@@ -7,7 +7,7 @@ auto main() -> int {
     ios::sync_with_stdio(false);
     cin.tie(nullptr);
 
-    auto t=int64_t{0};
+    auto t=i6{0};
     cin>>t;
     while(t--) {
         
