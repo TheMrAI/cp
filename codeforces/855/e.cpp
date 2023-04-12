@@ -72,9 +72,6 @@ auto main() -> int {
         if(!match) {
             cout << "NO" << endl;
             continue;
-        } else if (spell.size() >= 6) {
-            cout << "YES" << endl;
-            continue;
         }
 
         auto parents = vector<i6>(spell.size());
