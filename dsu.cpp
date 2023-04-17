@@ -1,3 +1,8 @@
+#include <bits/stdc++.h>
+
+using namespace std;
+using i6 = int64_t;
+
 // DSU, Source: https://cp-algorithms.com/data_structures/disjoint_set_union.html#union-by-size-rank
 
 auto make_set(vector<i6>& parent, i6 value) -> void {
@@ -25,4 +30,8 @@ auto union_sets(vector<i6>& parents, vector<i6>& ranks, i6 lhs, i6 rhs) -> void 
             ++ranks[parent_lhs];
         }
     }
+}
+
+int main() {
+    return 0;
 }
