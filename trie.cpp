@@ -4,56 +4,43 @@ using namespace std;
 
 class Trie {
 private:
-    struct TrieNode {
+    struct Entry {
         bool is_word;
-        map<char, TrieNode> next;
+        map<char, Entry> rest;
     };
 
-    map<char, TrieNode> root;
+    Entry root;
 public:
-    Trie() {}
+    Trie(): root{false, {}} {}
     
-    void insert(string word) {
-        if(word.size() == 0) {
-            return;
-        }
-        map<char, TrieNode>* node = &root;
-
+    void addWord(string word) {
+        auto* entry = &root;
         for(auto i = 0; i < word.size(); ++i) {
-            if(node->count(word[i]) == 0) {
-                node->insert(make_pair(word[i], TrieNode{false, {}} ));
+            if(entry->rest.count(word[i]) == 0) {
+                entry->rest.emplace(word[i], Entry{false, {}});
             }
-            if (i == word.size() - 1) {
-                (*node)[word[i]].is_word = true;
+            if(i == word.size() - 1) {
+                entry->rest.at(word[i]).is_word = true;
+                break;
             }
-            node = &((*node)[word[i]].next);
+            entry = &(entry->rest.at(word[i]));
         }
     }
     
     bool search(string word) {
-        return _search(word, true);
+        return _search(word, 0, root);
     }
-    
-    bool startsWith(string prefix) {
-        return _search(prefix, false);
-    }
-
 private:
-    bool _search(string const& word, bool has_to_be_word) {
-        if(word.size() == 0) {
-            return false;
+    bool _search(string const& word, int index, Entry const& entry) {
+        if(index == word.size()) {
+            return entry.is_word;
         }
-        map<char, TrieNode>* node = &root;
-        bool was_word = false;
-
-        for(auto i = 0; i < word.size(); ++i) {
-            if(node->count(word[i]) == 0) {
-                return false;
-            }
-            was_word = (*node)[word[i]].is_word;
-            node = &((*node)[word[i]].next);
+        
+        auto marker = word[index];
+        if(entry.rest.count(marker) == 1) {
+            return _search(word, index + 1, entry.rest.at(marker));
         }
-        return has_to_be_word ? was_word : true;
+        return false;
     }
 };
 
@@ -62,7 +49,7 @@ auto main() -> int {
     cin.tie(nullptr);
 
     auto trie = Trie{};
-    trie.insert("apple");
+    trie.addWord("apple");
     cout << trie.search("apple") << endl;
     cout << trie.search("apple") << endl;
 
