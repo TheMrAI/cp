@@ -4,7 +4,7 @@ using namespace std;
 using i6 = int64_t;
 
 // Source: https://cp-algorithms.com/algebra/euclid-algorithm.html
-auto e_gcm(int a, int b) -> int {
+auto e_gcd(int a, int b) -> int {
     if (b > a) {
         swap(a, b);
     }
@@ -19,7 +19,7 @@ auto e_gcm(int a, int b) -> int {
 }
 
 auto e_lcm(int a, int b) -> int {
-    return a / e_gcm(a, b) * b;
+    return a / e_gcd(a, b) * b;
 }
 
 auto main() -> int {
@@ -28,7 +28,7 @@ auto main() -> int {
 
     int a, b;
     cin>>a>>b;
-    cout << e_gcm(a,b) << endl;
+    cout << e_gcd(a,b) << endl;
 
     return 0;
 }
