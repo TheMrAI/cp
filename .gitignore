@@ -41,3 +41,6 @@
 *.exe
 *.out
 *.app
+
+# Special scratchpad for quick C++ code experimentation
+scratch.cpp
