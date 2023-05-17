@@ -43,4 +43,4 @@
 *.app
 
 # Special scratchpad for quick C++ code experimentation
-scratch.cpp
+scratch*.cpp
