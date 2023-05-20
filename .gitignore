@@ -42,5 +42,12 @@
 *.out
 *.app
 
+# Images
+*.ppm
+
 # Special scratchpad for quick C++ code experimentation
 scratch*.cpp
+scratch*.in
+_s_*.cpp
+s_*.cpp
+s_*.in
