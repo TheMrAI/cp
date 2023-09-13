@@ -81,9 +81,9 @@ struct Node {
     std::unordered_map<int, int> edges; // nodeId => weight
 };
 
-auto toStandardEdgeList(std::unordered_map<std::string, Valve> const inputGraph, 
-    std::unordered_map<std::string, int> const encoding) -> std::vector<Node> {
-        auto edgeList = std::vector<Node>(encoding.size());
+auto toStandardEdgeMap(std::unordered_map<std::string, Valve> const inputGraph, 
+    std::unordered_map<std::string, int> const encoding) -> std::unordered_map<int, Node> {
+        auto edgeMap = std::unordered_map<int, Node>{};
         for (auto const& entry : inputGraph) {
             auto nodeId = encoding.at(entry.first);
             auto node = Node{};
@@ -91,30 +91,27 @@ auto toStandardEdgeList(std::unordered_map<std::string, Valve> const inputGraph,
             for (auto const& neighbor : entry.second.tunnels) { 
                 node.edges.insert({encoding.at(neighbor), 1});
             }
-            std::swap(edgeList[nodeId], node);
+            std::swap(edgeMap[nodeId], node);
         }
 
-        return edgeList;
+        return edgeMap;
 }
 
-auto floydWarshall(std::vector<Node> const edgeList) -> std::vector<std::vector<int>> {
+auto floydWarshall(std::unordered_map<int, Node> const edgeMap) -> std::vector<std::vector<int>> {
     constexpr auto INF = std::numeric_limits<int>::max();
     
-    auto distanceMatrix = std::vector<std::vector<int>>(edgeList.size(), std::vector<int>(edgeList.size(), INF));
+    auto distanceMatrix = std::vector<std::vector<int>>(edgeMap.size(), std::vector<int>(edgeMap.size(), INF));
     
-    for(auto i = 0; i < edgeList.size(); ++i) {
-        for(auto j = 0; j < edgeList.size(); ++j) {
-            if (i == j) {
-                distanceMatrix[i][j] = 0;
-            } else if (edgeList[i].edges.count(j) != 0) {
-                distanceMatrix[i][j] = edgeList[i].edges.at(j);
-            }
+    for(auto const& sourceNode : edgeMap) {
+        distanceMatrix[sourceNode.first][sourceNode.first] = 0;
+        for(auto const& targetNode : sourceNode.second.edges) {
+            distanceMatrix[sourceNode.first][targetNode.first] = targetNode.second;
         }
     }
 
-    for(auto k = 0; k < edgeList.size(); ++k) {
-        for(auto i = 0; i < edgeList.size(); ++i) {
-            for(auto j = 0; j < edgeList.size(); ++j) {
+    for(auto k = 0; k < edgeMap.size(); ++k) {
+        for(auto i = 0; i < edgeMap.size(); ++i) {
+            for(auto j = 0; j < edgeMap.size(); ++j) {
                 if(distanceMatrix[i][k] == INF || distanceMatrix[k][j] == INF) {
                     continue;
                 }
@@ -126,34 +123,66 @@ auto floydWarshall(std::vector<Node> const edgeList) -> std::vector<std::vector<
     return distanceMatrix;
 }
 
-auto compressEdgeList(std::vector<Node> const& edgeList) -> std::vector<Node> {
+auto compressEdgeMap(std::unordered_map<int, Node> const& edgeMap) -> std::unordered_map<int, Node> {
     // Floyd-Warshall
-    auto shortestPaths = floydWarshall(edgeList);
-    // filter out non positive valves
-    auto positiveFlowValves = std::set<int>{};
-    for (auto i = 0; i < edgeList.size(); ++i) {
-        if (edgeList[i].flowRate > 0) {
-            positiveFlowValves.insert(i);
+    auto shortestPaths = floydWarshall(edgeMap);
+    
+    auto compressedEdgeMap = std::unordered_map<int, Node>{};
+    //add all positive flow rate nodes
+    for(auto const& node : edgeMap) {
+        if (node.second.flowRate > 0) {
+            compressedEdgeMap[node.first] = node.second;
+            // clear all connections, they will get reconnected later
+            compressedEdgeMap[node.first].edges = std::unordered_map<int, int>{};
         }
     }
-    // adding node with zero as that is the starting node, regardless of its valves value
-    positiveFlowValves.insert(0);
-
-    auto compressedEdgeList = std::vector<Node>{};
-    for (auto i = 0; i < edgeList.size(); ++i) {
-        if (positiveFlowValves.count(i) == 0) {
-            continue;
-        }
-        auto node = Node{edgeList[i].flowRate, std::unordered_map<int, int>{}};
-        for (auto j = 0; j < edgeList.size(); ++j) {
-            if(i == j || positiveFlowValves.count(j) == 0) {
+    //connect all positive flow nodes to all other
+    for(auto & node : compressedEdgeMap) {
+        for(auto const& targetNode : compressedEdgeMap) {
+            if (node.first == targetNode.first) {
                 continue;
             }
-            node.edges.insert({j, shortestPaths[i][j]});
+            node.second.edges[targetNode.first] = shortestPaths[node.first][targetNode.first];
         }
-        compressedEdgeList.push_back(std::move(node));
     }
-    return compressedEdgeList;
+    //add zero id node, because that is the start even if it has zero flow
+    compressedEdgeMap[0] = edgeMap.at(0);
+    compressedEdgeMap[0].edges = std::unordered_map<int, int>{};
+    //connect to all other nodes
+    for(auto const& targetNode : compressedEdgeMap) {
+        if(targetNode.first == 0) {
+            continue;
+        }
+        compressedEdgeMap[0].edges[targetNode.first] = shortestPaths[0][targetNode.first];
+    }
+    
+    return compressedEdgeMap;
+}
+
+auto dfs(std::unordered_map<int, Node> const& edgeMap, int nodeId, int remainingTime, int perMinuteRelease, uint seen) -> int {
+    auto thisNodeVisited = (seen & (1u << nodeId)) != 0;
+    if (thisNodeVisited || remainingTime <= 1 || (seen == (1u << edgeMap.size()) - 1)) {
+        return perMinuteRelease * remainingTime;
+    }
+
+    auto released = 0;
+    // open current valve if it is worth opening
+    if (edgeMap.at(nodeId).flowRate != 0) {
+        --remainingTime;
+        released = perMinuteRelease;
+    }
+    // mark node as seen
+    seen = seen | (1u << nodeId);
+    perMinuteRelease += edgeMap.at(nodeId).flowRate;
+    
+    auto maximumThatCanBeReleased = 0;
+    for(auto const& targetNode : edgeMap.at(nodeId).edges) {
+        auto travelTime = targetNode.second;
+        auto releasedWhileTraversing = travelTime * perMinuteRelease;
+        maximumThatCanBeReleased = std::max(maximumThatCanBeReleased, 
+                                     releasedWhileTraversing + dfs(edgeMap, targetNode.first, remainingTime - travelTime, perMinuteRelease, seen));
+    }
+    return released + maximumThatCanBeReleased;
 }
 
 auto main() -> int {
@@ -162,15 +191,18 @@ auto main() -> int {
 
     auto originalGraph = parseGraph();
     auto nodeEncoding = encodeGraphNodes(originalGraph);
-    auto originalEdgeList = toStandardEdgeList(originalGraph, nodeEncoding);
-    auto edgeList = compressEdgeList(originalEdgeList);
+    auto originalEdgeMap = toStandardEdgeMap(originalGraph, nodeEncoding);
+    auto edgeMap = compressEdgeMap(originalEdgeMap);
 
-    for(auto i = 0; i < edgeList.size(); ++i) {
-        std::cout << "Node: " << i << " flow: " << edgeList[i].flowRate <<  std::endl;
-        for(auto const& edge : edgeList[i].edges) {
-            std::cout << '\t' << "To: " << edge.first << " in: " << edge.second << std::endl;
+    for(auto const& node : edgeMap) {
+        std::cout << "Node: " << node.first << " with flow rate: " << node.second.flowRate << std::endl;
+        for(auto const& n : node.second.edges) {
+            std::cout << '\t' << n.first << " in: " << n.second << std::endl;
         }
     }
+
+    auto totalReleased = dfs(edgeMap, 0, 30, 0, 0u);
+    std::cout << "Total pressure released: " << totalReleased << std::endl;
 
     return 0;
 }
