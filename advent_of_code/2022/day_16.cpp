@@ -1,4 +1,5 @@
 #include <bits/stdc++.h>
+#include <format>
 
 using namespace std;
 using i6 = int64_t;
@@ -159,9 +160,8 @@ auto compressEdgeMap(std::unordered_map<int, Node> const& edgeMap) -> std::unord
     return compressedEdgeMap;
 }
 
-auto dfs(std::unordered_map<int, Node> const& edgeMap, int nodeId, int remainingTime, int perMinuteRelease, uint seen) -> int {
-    auto thisNodeVisited = (seen & (1u << nodeId)) != 0;
-    if (thisNodeVisited || remainingTime <= 1 || (seen == (1u << edgeMap.size()) - 1)) {
+auto dfs(std::unordered_map<int, Node> const& edgeMap, int nodeId, int remainingTime, int perMinuteRelease, uint seen, uint const& allSeenMask) -> int {
+    if (remainingTime <= 1 || seen == allSeenMask) {
         return perMinuteRelease * remainingTime;
     }
 
@@ -170,19 +170,91 @@ auto dfs(std::unordered_map<int, Node> const& edgeMap, int nodeId, int remaining
     if (edgeMap.at(nodeId).flowRate != 0) {
         --remainingTime;
         released = perMinuteRelease;
+        perMinuteRelease += edgeMap.at(nodeId).flowRate;
     }
     // mark node as seen
-    seen = seen | (1u << nodeId);
-    perMinuteRelease += edgeMap.at(nodeId).flowRate;
+    seen |= (1u << nodeId);
     
-    auto maximumThatCanBeReleased = 0;
+    auto maximumThatCanBeReleased = perMinuteRelease * remainingTime;
     for(auto const& targetNode : edgeMap.at(nodeId).edges) {
+        auto targetNodeVisited = (seen & (1u << targetNode.first)) != 0;
+        if (targetNodeVisited) {
+            continue;
+        }
         auto travelTime = targetNode.second;
         auto releasedWhileTraversing = travelTime * perMinuteRelease;
         maximumThatCanBeReleased = std::max(maximumThatCanBeReleased, 
-                                     releasedWhileTraversing + dfs(edgeMap, targetNode.first, remainingTime - travelTime, perMinuteRelease, seen));
+                                     releasedWhileTraversing + dfs(edgeMap, targetNode.first, remainingTime - travelTime, perMinuteRelease, seen, allSeenMask));
     }
     return released + maximumThatCanBeReleased;
+}
+
+// curiously we don't even have to know where the agent actually is, only where they are going and when they arrive
+struct Agent {
+    int targetNodeId;
+    int arrivalTime;
+};
+
+auto dfs_second_part(std::unordered_map<int, Node> const& edgeMap, Agent user, Agent elephant, int simulationStep, int currentTime,
+    int endTime, int perMinuteRelease, uint seen, uint const& allSeenMask) -> int {
+    auto releasedWhileStepping = perMinuteRelease * simulationStep;
+    // all node seen or no time left
+    if (currentTime == endTime || seen == allSeenMask) {
+        // std::cout << "Current: " << currentTime << ", perMinute: " << perMinuteRelease << " seen: " << std::format("{:b}", seen) << std::endl;
+        return releasedWhileStepping;
+    }
+
+    auto userTargets = std::vector<std::pair<int, int>>{};
+    userTargets.emplace_back(user.targetNodeId, user.arrivalTime);
+    if (user.arrivalTime == currentTime) {
+        auto userNodeSeen = (seen & (1u << user.targetNodeId)) != 0;
+        if (!userNodeSeen) {
+            seen |= (1u << user.targetNodeId);
+            userTargets.emplace_back(user.targetNodeId, currentTime + 1);
+            perMinuteRelease += edgeMap.at(user.targetNodeId).flowRate;
+        } else {
+            // collect candidates
+            for (auto const& userCandidate : edgeMap.at(user.targetNodeId).edges) {
+                auto candidateSeen = (seen & (1u << userCandidate.first)) != 0;
+                if (candidateSeen || userCandidate.first == elephant.targetNodeId) {
+                    continue;
+                }
+                userTargets.emplace_back(userCandidate.first, currentTime + userCandidate.second);
+            }
+        }
+    }
+
+    auto elephantTargets = std::vector<std::pair<int, int>>{};
+    elephantTargets.emplace_back(elephant.targetNodeId, elephant.arrivalTime);
+    if (elephant.arrivalTime == currentTime) {
+        auto elephantNodeSeen = (seen & (1u << elephant.targetNodeId)) != 0;
+        if (!elephantNodeSeen) {
+            seen |= (1u << elephant.targetNodeId);
+            elephantTargets.emplace_back(elephant.targetNodeId, currentTime + 1);
+            perMinuteRelease += edgeMap.at(elephant.targetNodeId).flowRate;
+        } else {
+            // collect candidates
+            for (auto const& elephantCandidate : edgeMap.at(elephant.targetNodeId).edges) {
+                auto candidateSeen = (seen & (1u << elephantCandidate.first)) != 0;
+                if (candidateSeen || elephantCandidate.first == user.targetNodeId) {
+                    continue;
+                }
+                elephantTargets.emplace_back(elephantCandidate.first, currentTime + elephantCandidate.second);
+            }
+        }
+    }
+
+    auto additionalMaxReleasablePressure = 0;
+    for (auto const& userCandidate : userTargets) {
+        for (auto const& elephantCandidate : elephantTargets) {
+            auto userTargetArrivalTime = currentTime >= userCandidate.second ? endTime : std::min(userCandidate.second, endTime);
+            auto elephantTargetArrivalTime = currentTime >= elephantCandidate.second ? endTime : std::min(elephantCandidate.second, endTime);
+            auto travelTime = std::min(userTargetArrivalTime, elephantTargetArrivalTime) - currentTime;
+            additionalMaxReleasablePressure = std::max(additionalMaxReleasablePressure, dfs_second_part(edgeMap, Agent{userCandidate.first, userCandidate.second}, Agent{elephantCandidate.first, elephantCandidate.second}, travelTime, currentTime + travelTime, endTime, perMinuteRelease, seen, allSeenMask));
+        }
+    }
+
+    return releasedWhileStepping + additionalMaxReleasablePressure;
 }
 
 auto main() -> int {
@@ -194,15 +266,58 @@ auto main() -> int {
     auto originalEdgeMap = toStandardEdgeMap(originalGraph, nodeEncoding);
     auto edgeMap = compressEdgeMap(originalEdgeMap);
 
+    auto allSeenMask = 0u;
     for(auto const& node : edgeMap) {
+        allSeenMask |= 1u << node.first;
         std::cout << "Node: " << node.first << " with flow rate: " << node.second.flowRate << std::endl;
         for(auto const& n : node.second.edges) {
             std::cout << '\t' << n.first << " in: " << n.second << std::endl;
         }
     }
 
-    auto totalReleased = dfs(edgeMap, 0, 30, 0, 0u);
+    auto totalReleased = dfs(edgeMap, 0, 30, 0, 0u, allSeenMask);
     std::cout << "Total pressure released: " << totalReleased << std::endl;
+
+    auto testMap = std::unordered_map<int, Node>{
+        {0, Node{0, 
+                std::unordered_map<int, int>{
+                    {1, 1},
+                    {2, 2},
+                    {3, 1}    
+                }
+            }
+        },
+        {1, Node{13, 
+                std::unordered_map<int, int>{
+                    {0, 1},
+                    {2, 1},
+                    {3, 2}    
+                }
+            }
+        },
+        {2, Node{2, 
+                std::unordered_map<int, int>{
+                    {0, 2},
+                    {1, 1},
+                    {3, 1}    
+                }
+            }
+        },
+        {3, Node{20, 
+                std::unordered_map<int, int>{
+                    {0, 1},
+                    {2, 1},
+                    {1, 2}    
+                }
+            }
+        }
+    };
+
+    std::cout << edgeMap.size() << std::endl;
+    // for (auto i = 1; i <= 13; ++i) {
+        auto totalReleasedWithElephantBro = dfs_second_part(edgeMap, Agent{0, 1}, Agent{0, 1}, 0, 1, 26, 0, 1u, allSeenMask);
+        std::cout << "Total pressure release with elephant companion: " << totalReleasedWithElephantBro << std::endl;
+    // }
 
     return 0;
 }
