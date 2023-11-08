@@ -93,34 +93,37 @@ auto sum_with_arithmetic_progression(uint32_t start, uint32_t remaining_steps) -
 }
 
 // search as BFT and prune as many branches as we can
-auto get_maximal_geode_count(Blueprint const& blueprint, uint32_t const simulation_minutes) -> uint32_t {
+auto get_maximal_geode_count(Blueprint const& blueprint, uint32_t const simulation_minutes, SimulationPoint simulate_from = SimulationPoint{1, ProductionStatus{0, 0, 0, 0, 1, 0, 0, 0}}, uint32_t const seen_maximum = 0) -> uint32_t {
     uint32_t maximum_necessary_ore_production = std::max({blueprint.ore_robot.ore, blueprint.clay_robot.ore, blueprint.obsidian_robot.ore, blueprint.geode_robot.ore});
     uint32_t maximum_necessary_clay_production = std::max({blueprint.ore_robot.clay, blueprint.clay_robot.clay, blueprint.obsidian_robot.clay, blueprint.geode_robot.clay});
     uint32_t maximum_necessary_obsidian_production = std::max({blueprint.ore_robot.obsidian, blueprint.clay_robot.obsidian, blueprint.obsidian_robot.obsidian, blueprint.geode_robot.obsidian});
     
-    uint32_t maximal_geode_count = 0;
+    uint32_t maximal_geode_count = seen_maximum;
 
     std::queue<SimulationPoint> options;
-    options.emplace(1, ProductionStatus{0, 0, 0, 0, 1, 0, 0, 0});
+    options.push(std::move(simulate_from));
 
     while(!options.empty()) {
         auto to_evaluate = options.front();
         options.pop();
 
         auto remaining_minutes = simulation_minutes - to_evaluate.minute;
-        // if we could produce one geode bot each round, we can calculate the maximum achievable on that branch
-        if (to_evaluate.status.ore_production >= blueprint.geode_robot.ore && to_evaluate.status.clay_production >= blueprint.geode_robot.clay && to_evaluate.status.obsidian_production >= blueprint.geode_robot.obsidian) {
-            maximal_geode_count = std::max(maximal_geode_count, sum_with_arithmetic_progression(to_evaluate.status.geode_production, remaining_minutes));
-            continue;
-        }
-
+        
         auto absolute_maximal_output = to_evaluate.status.geode_total + sum_with_arithmetic_progression(to_evaluate.status.geode_production, remaining_minutes);
         // if we assumed we could produce a geode robot every round from here on, would we beat the maximum, if no
         // this branch is useless
         if (to_evaluate.minute > simulation_minutes || absolute_maximal_output < maximal_geode_count) {
             continue;
         }
-        //std::cout << to_evaluate.status.ore_total << " " << to_evaluate.status.clay_total << " " << to_evaluate.status.obsidian_total << " " << to_evaluate.status.geode_total << std::endl;
+        // if we could produce one geode bot each round, we can calculate the maximum achievable globally
+        // , because we are searching using BFT, so the first layer we find such a match is the best one
+        // TODO fix this, should give nice speedup
+        // if (to_evaluate.status.ore_production >= blueprint.geode_robot.ore && to_evaluate.status.clay_production >= blueprint.geode_robot.clay && to_evaluate.status.obsidian_production >= blueprint.geode_robot.obsidian) {
+        //     maximal_geode_count = absolute_maximal_output;
+        //     // std::cout << "Quick exit at minute: " << to_evaluate.minute << std::endl;
+        //     break;
+        // }
+
         // build no robot, this is always true
         if (can_build_robot(blueprint.none_robot, to_evaluate.status)) {
             auto after_update = update_status(to_evaluate, blueprint.none_robot);
@@ -140,13 +143,15 @@ auto get_maximal_geode_count(Blueprint const& blueprint, uint32_t const simulati
         } 
         if (can_build_robot(blueprint.obsidian_robot, to_evaluate.status) && to_evaluate.status.obsidian_production < maximum_necessary_obsidian_production) {
             auto after_update = update_status(to_evaluate, blueprint.obsidian_robot);
-            maximal_geode_count = std::max(maximal_geode_count, after_update.status.geode_total);
-            options.push(after_update);
+            // maximal_geode_count = std::max(maximal_geode_count, after_update.status.geode_total);
+            // options.push(after_update);
+            maximal_geode_count = std::max({maximal_geode_count, after_update.status.geode_total, get_maximal_geode_count(blueprint, simulation_minutes, after_update, maximal_geode_count)});
         }
         if (can_build_robot(blueprint.geode_robot, to_evaluate.status)) {
             auto after_update = update_status(to_evaluate, blueprint.geode_robot);
-            maximal_geode_count = std::max(maximal_geode_count, after_update.status.geode_total);
-            options.push(after_update);
+            // maximal_geode_count = std::max(maximal_geode_count, after_update.status.geode_total);
+            // options.push(after_update);
+            maximal_geode_count = std::max({maximal_geode_count, after_update.status.geode_total, get_maximal_geode_count(blueprint, simulation_minutes, after_update, maximal_geode_count)});
         }
     }
 
@@ -184,7 +189,7 @@ auto main() -> int {
             geode_robot
         };
 
-        auto geode_count = get_maximal_geode_count(blueprint, 27);
+        auto geode_count = get_maximal_geode_count(blueprint, 32);
         auto blueprint_score = blueprint_id * geode_count;
         total_score += blueprint_score;
         std::cout << blueprint_id << " geode count: " << geode_count << " ,with score: " << blueprint_score << std::endl;
@@ -193,3 +198,16 @@ auto main() -> int {
 
     return 0;
 }
+
+
+// First run on 32 min input that didn't explode with out of memory (Still used up more than 10 GiBs though)!!!
+
+// mrai@potatoland:~/tinker/cp/advent_of_code/2022$ time ./day_19 < day_19_2.in
+// 1 geode count: 30 ,with score: 30
+// 2 geode count: 4 ,with score: 8
+// 3 geode count: 17 ,with score: 51
+// Total score: 89
+
+// real    3m6.314s
+// user    3m1.291s
+// sys     0m4.990s
