@@ -1,8 +1,5 @@
 #include <bits/stdc++.h>
 
-using namespace std;
-using i6 = int64_t;
-
 template<typename Output, typename Iter>
 requires 
     std::derived_from<Output, std::ostream> &&
@@ -27,11 +24,11 @@ auto ceil2(T a, T b) -> T {
 }
 
 auto main() -> int {
-    ios::sync_with_stdio(false);
-    cin.tie(nullptr);
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
 
-    auto t=i6{0};
-    cin>>t;
+    auto t=int664_t{0};
+    std::cin>>t;
     while(t--) {
         
     }
