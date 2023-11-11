@@ -4,36 +4,38 @@ using namespace std;
 using i6 = int64_t;
 
 // Source: https://codeforces.com/blog/entry/78852
-int ceil2(i6 a, i6 b) {
-    if (a == 0) return 0;
-    return ((a - 1)/b) + 1;
+int ceil2(i6 a, i6 b)
+{
+  if (a == 0) return 0;
+  return ((a - 1) / b) + 1;
 }
 
-auto main() -> int {
-    ios::sync_with_stdio(false);
-    cin.tie(nullptr);
+auto main() -> int
+{
+  ios::sync_with_stdio(false);
+  cin.tie(nullptr);
 
-    auto t=i6{0};
-    cin>>t;
-    while(t--) {
-        i6 n = 0;
-        i6 k = 0;
-        cin>>n>>k;
+  auto t = i6{ 0 };
+  cin >> t;
+  while (t--) {
+    i6 n = 0;
+    i6 k = 0;
+    cin >> n >> k;
 
-        auto ok = false;
-        for(int i = 0; i <= 1; ++i) {
-            auto remaining = n - i*k;
-            if(remaining >= 0 && remaining % 2 == 0) {
-                ok = true;
-                break;
-            }
-        }
-        if(ok) {
-            cout << "YES"<< endl;
-        } else {
-            cout << "NO" << endl;
-        }
+    auto ok = false;
+    for (int i = 0; i <= 1; ++i) {
+      auto remaining = n - i * k;
+      if (remaining >= 0 && remaining % 2 == 0) {
+        ok = true;
+        break;
+      }
     }
+    if (ok) {
+      cout << "YES" << endl;
+    } else {
+      cout << "NO" << endl;
+    }
+  }
 
-    return 0;
+  return 0;
 }
