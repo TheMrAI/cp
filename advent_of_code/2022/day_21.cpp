@@ -26,6 +26,7 @@ auto ceil2(T a, T b) -> T {
 struct MonkeyNode {
     bool ready;
     int64_t value;
+    std::string name;
     std::string operation;
     std::string leftName;
     MonkeyNode* left;
@@ -33,12 +34,21 @@ struct MonkeyNode {
     MonkeyNode* right;
 };
 
-auto evaluate_node(MonkeyNode* node) -> int64_t {
+auto evaluate_node(MonkeyNode* node, bool humanShouts = false) -> int64_t {
+    if (humanShouts && node->name == "humn") {
+        node->ready = false;
+        return 0;
+    }
     if (node->ready) {
         return node->value;
     }
-    auto left_value = evaluate_node(node->left);
-    auto right_value = evaluate_node(node->right);
+
+    auto left_value = evaluate_node(node->left, humanShouts);
+    auto right_value = evaluate_node(node->right, humanShouts);
+
+    if (!node->left->ready || !node->right->ready) {
+        return 0;
+    }
 
     if (node->operation == "+") {
         node->value = left_value + right_value;
@@ -49,8 +59,50 @@ auto evaluate_node(MonkeyNode* node) -> int64_t {
     } else if (node->operation == "/") {
         node->value = left_value / right_value;
     }
+    // there is nothing we have to do in the = case
     node->ready = true;
     return node->value;
+}
+
+auto resolve_human(MonkeyNode* node, int64_t current_value) -> int64_t { 
+    node->value = current_value;
+    node->ready = true;
+
+    if (node->operation == "=") {
+        if (node->left->ready) {
+            return resolve_human(node->right, node->left->value);
+        }
+        return resolve_human(node->left, node->right->value);
+    }
+
+    if (node->name == "humn") {
+        return current_value;
+    }
+
+    if (node->operation == "+") {
+        if (node->left->ready) {
+            return resolve_human(node->right, current_value - node->left->value);
+        }
+        return resolve_human(node->left, current_value - node->right->value);
+    } else if (node->operation == "-") {
+        if (node->left->ready) {
+            return resolve_human(node->right, node->left->value - current_value);
+        }
+        return resolve_human(node->left, current_value + node->right->value);
+    } else if (node->operation == "*") {
+        if (node->left->ready) {
+            return resolve_human(node->right, current_value / node->left->value);
+        }
+        return resolve_human(node->left, current_value / node->right->value);
+    } else if (node->operation == "/") {
+        if (node->left->ready) {
+            return resolve_human(node->right, node->left->value / current_value);
+        }
+        return resolve_human(node->left, current_value * node->right->value);
+    }
+    // this doesn't happen
+    std::cout << "Not here " << node->name;
+    return 0;
 }
 
 auto main() -> int {
@@ -70,6 +122,7 @@ auto main() -> int {
         if (std::regex_match(line, match, dependency_regex)) {
             node->ready = false;
             node->value = 0;
+            node->name = match[1];
             node->leftName = match[2];
             node->operation = match[3];
             node->left = nullptr;
@@ -79,6 +132,7 @@ auto main() -> int {
         } else if (std::regex_match(line, match, leaf_regex)) {
             node->ready = true;
             node->value = std::stoi(match[2]);
+            node->name = match[1];
             node->leftName = "";
             node->operation = "";
             node->left = nullptr;
@@ -98,7 +152,12 @@ auto main() -> int {
         }
     }
 
-    std::cout << "Root value: " << evaluate_node(node_map.at("root").get()) << std::endl;
+    // Part 1
+    // std::cout << "Root value: " << evaluate_node(node_map.at("root").get()) << std::endl;
+    // Part 2
+    node_map.at("root")->operation = "=";
+    evaluate_node(node_map.at("root").get(), true);
+    std::cout << "Human shouts: " << resolve_human(node_map.at("root").get(), 0) << std::endl;
 
     return 0;
 }
