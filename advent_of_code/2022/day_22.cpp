@@ -32,6 +32,7 @@ auto next_valid_i(std::vector<std::string> const& matrix, int i, int j, int offs
   return next_i;
 }
 
+// yes, yes code duplication, sue me
 auto next_valid_j(std::vector<std::string> const& matrix, int i, int j, int offset_j) -> int
 {
   auto next_j = j + offset_j;
@@ -64,6 +65,29 @@ auto simulate(std::vector<std::string>& matrix,
   return std::make_pair(next_i, next_j);
 }
 
+// this function will assign a unique id to each face, between [1-6], the non face sectors
+// will be marked by 0
+auto compress_map_into_cube_face_diagram(std::vector<std::string> const& matrix, size_t face_width)
+  -> std::vector<std::vector<size_t>>
+{
+  assert(matrix.size() % face_width == 0);
+  assert(matrix[0].size() % face_width == 0);
+
+  auto row_count = matrix.size() / face_width;
+  auto column_count = matrix[0].size() / face_width;
+  auto compressed_map = std::vector<std::vector<size_t>>(row_count, std::vector<size_t>(column_count, 0));
+  auto face_id = size_t{ 1 };
+  for (auto i = size_t{ 0 }; i < row_count; ++i) {
+    for (auto j = size_t{ 0 }; j < column_count; ++j) {
+      if (matrix[i * face_width][j * face_width] != ' ') {
+        compressed_map[i][j] = face_id;
+        ++face_id;
+      }
+    }
+  }
+  return compressed_map;
+}
+
 auto main() -> int
 {
   std::ios::sync_with_stdio(false);
@@ -80,6 +104,42 @@ auto main() -> int
 
   // normalize line widths
   for (auto& line : matrix) { line.resize(longest_line, ' '); }
+  // figure out the width of a face, by finding the shortest non space filled line
+  // there has to be one such either by scanning horizontally or vertically otherwise
+  // the cube cannot be assembled
+  auto face_width = std::numeric_limits<size_t>::max();
+  for (auto const& line : matrix) {
+    auto count = size_t{ 0 };
+    for (auto c : line) {
+      if (c != ' ') {
+        ++count;
+      } else if (count != size_t{ 0 }) {
+        face_width = std::min(face_width, count);
+        count = size_t{ 0 };
+      }
+    }
+    if (count != size_t{ 0 }) { face_width = std::min(face_width, count); }
+  }
+
+  for (auto j = size_t{ 0 }; j < matrix[0].size(); ++j) {
+    auto count = size_t{ 0 };
+    for (auto i = size_t{ 0 }; i < matrix.size(); ++i) {
+      if (matrix[i][j] != ' ') {
+        ++count;
+      } else if (count != size_t{ 0 }) {
+        face_width = std::min(face_width, count);
+        count = size_t{ 0 };
+      }
+    }
+    if (count != size_t{ 0 }) { face_width = std::min(face_width, count); }
+  }
+
+  std::cout << "Face width is: " << face_width << std::endl;
+  auto cube_face_diagram = compress_map_into_cube_face_diagram(matrix, face_width);
+  for (auto const& line : cube_face_diagram) {
+    dump_to(std::cout, line.cbegin(), line.cend());
+    std::cout << std::endl;
+  }
 
   auto directions = std::string{};
   std::getline(std::cin, directions);
@@ -103,8 +163,7 @@ auto main() -> int
       dir_data >> count;
       auto [next_i, next_j] =
         simulate(matrix, start_i, start_j, offsets[offset_index], direction_marker[offset_index], count);
-      // for (auto const& line : matrix) { std::cout << line << std::endl; }
-      // std::cout << std::endl;
+
       start_i = next_i;
       start_j = next_j;
     } else {
@@ -117,7 +176,7 @@ auto main() -> int
     }
     read_number = !read_number;
   }
-
+  // plus 1, because the exercise is 1 indexed not 0
   std::cout << "Final password: " << ((start_i + 1) * 1000) + ((start_j + 1) * 4) + offset_index << std::endl;
 
   return 0;
