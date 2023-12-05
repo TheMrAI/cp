@@ -184,25 +184,64 @@ func PartOne(seeds []int, mappings map[Type]Mapping) int {
 	return lowestLocationNumber
 }
 
+// real    1m36.608s
+// user    1m36.640s
+// sys     0m0.050s
 func PartTwo(seedRanges []RangeData, mappings map[Type]Mapping) int {
 	lowestLocationNumber := math.MaxInt
 	for _, rangeData := range seedRanges {
-		for startValue := rangeData.Start; startValue < rangeData.End; startValue++ {
-			currentType := Seed
-			value := startValue
-			for {
-				mapping, ok := mappings[currentType]
-				if !ok {
-					break
-				}
-				currentType, value = mapping.Remap(value)
+		value := SmallestLocationForRange(rangeData, mappings)
+		if value < lowestLocationNumber {
+			lowestLocationNumber = value
+		}
+
+	}
+	return lowestLocationNumber
+}
+
+func SmallestLocationForRange(rangeData RangeData, mappings map[Type]Mapping) int {
+	lowestLocationNumber := math.MaxInt
+
+	for startValue := rangeData.Start; startValue < rangeData.End; startValue++ {
+		currentType := Seed
+		value := startValue
+		for {
+			mapping, ok := mappings[currentType]
+			if !ok {
+				break
 			}
-			if value < lowestLocationNumber {
-				lowestLocationNumber = value
-			}
+			currentType, value = mapping.Remap(value)
+		}
+		if value < lowestLocationNumber {
+			lowestLocationNumber = value
+		}
+	}
+
+	return lowestLocationNumber
+}
+
+// real    0m42.930s
+// user    2m3.348s
+// sys     0m0.065s
+// Twice as fast, meh, not good enough.
+func PartTwoGo(seedRanges []RangeData, mappings map[Type]Mapping) int {
+	lowestLocationNumber := math.MaxInt
+	c := make(chan int, len(seedRanges))
+	for _, rangeData := range seedRanges {
+		go SmallestLocationForRangeChanneled(rangeData, mappings, c)
+
+	}
+	for i := 0; i < len(seedRanges); i++ {
+		v := <-c
+		if v < lowestLocationNumber {
+			lowestLocationNumber = v
 		}
 	}
 	return lowestLocationNumber
+}
+
+func SmallestLocationForRangeChanneled(rangeData RangeData, mappings map[Type]Mapping, c chan int) {
+	c <- SmallestLocationForRange(rangeData, mappings)
 }
 
 func main() {
@@ -223,6 +262,8 @@ func main() {
 	for i := 0; i < len(seeds); i += 2 {
 		seedRanges = append(seedRanges, RangeData{seeds[i], seeds[i] + seeds[i+1]})
 	}
+
 	fmt.Println("Part two")
-	fmt.Printf("Lowest location number: %v\n", PartTwo(seedRanges, mappings))
+	// fmt.Printf("Lowest location number: %v\n", PartTwo(seedRanges, mappings))
+	fmt.Printf("Lowest location number: %v\n", PartTwoGo(seedRanges, mappings))
 }
