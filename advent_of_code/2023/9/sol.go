@@ -33,12 +33,31 @@ func PartOne(numberSequences [][]int) int {
 	total := 0
 
 	for i := range numberSequences {
-		total += ExtrapolateNextValue(numberSequences[i])
+		input := make([]int, len(numberSequences[i]))
+		copy(input, numberSequences[i])
+		total += ExtrapolateNextValue(input)
 	}
 
 	return total
 }
 
+func PartTwo(numberSequences [][]int) int {
+	total := 0
+
+	for i := range numberSequences {
+		input := make([]int, len(numberSequences[i]))
+		copy(input, numberSequences[i])
+		for i := 0; i < len(input)/2; i++ {
+			input[i], input[len(input)-1-i] = input[len(input)-1-i], input[i]
+		}
+		total += ExtrapolateNextValue(input)
+	}
+
+	return total
+}
+
+// I wonder what is the pattern in Go, but I feel like
+// destroying the input may not be such a widespread thing.
 func ExtrapolateNextValue(numbers []int) int {
 	length := len(numbers)
 	for {
@@ -79,4 +98,6 @@ func main() {
 
 	fmt.Println("Part one")
 	fmt.Printf("Sum of extrapolated values is: %v\n", PartOne(numberSequences))
+	fmt.Println("Part two")
+	fmt.Printf("Sum of backwards extrapolated values is: %v\n", PartTwo(numberSequences))
 }
