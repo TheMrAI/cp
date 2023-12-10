@@ -2,6 +2,7 @@
 
 using namespace std;
 
+// Yes, yes this is a very suboptimal trie, but it does what it needs to in a jiffy
 class Trie
 {
 private:
