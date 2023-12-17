@@ -122,6 +122,10 @@ func PartOne(matrix [][]int) int {
 // user    5m56.545s
 // sys     0m1.301s
 // but it gives incorrect answer on the big input.
+// Fixed the bug with the starting points, now it is correct:
+// real    4m58.124s
+// user    5m26.013s
+// sys     0m1.271s
 func PartTwo(matrix [][]int) int {
 	target := Pair{len(matrix) - 1, len(matrix[0]) - 1}
 	return FindMinimalPath(matrix, target, 4, 10)
@@ -152,18 +156,21 @@ func FindMinimalPath(matrix [][]int, target Pair, minStepCount, maxStepCount int
 	heap.Init(&toBeChecked)
 	// We add two search points immediately. Since we can never go forward first without turning, to cover all
 	// starting possibilities we pretend we arrived there from 2 directions.
-	starterBlockIdOne := BlockId{Pair{0, 0}, Right, 0, 1}
-	starterBlockIdTwo := BlockId{Pair{0, 0}, Down, 0, 1}
-	insertSteps(matrix, &toBeChecked, target, minStepCount, maxStepCount, Block{starterBlockIdOne, ManhattanDistance(Pair{0, 0}, target), 0}, true)
-	insertSteps(matrix, &toBeChecked, target, minStepCount, maxStepCount, Block{starterBlockIdTwo, ManhattanDistance(Pair{0, 0}, target), 0}, true)
+	starterBlockIdOne := BlockId{Pair{0, 1}, Right, matrix[0][1], 1}
+	insertSteps(matrix, &toBeChecked, target, minStepCount, maxStepCount, Block{starterBlockIdOne, ManhattanDistance(Pair{0, 1}, target), 0}, true)
+	starterBlockIdTwo := BlockId{Pair{1, 0}, Down, matrix[1][0], 1}
+	insertSteps(matrix, &toBeChecked, target, minStepCount, maxStepCount, Block{starterBlockIdTwo, ManhattanDistance(Pair{1, 0}, target), 0}, true)
 
 	for len(toBeChecked) != 0 {
 		checking := heap.Pop(&toBeChecked).(*Block)
-		// fmt.Println(checking)
+		// if checking.Id.Pos.I != 0 {
+		// 	continue
+		// }
+		// fmt.Printf("I: %v J: %v\n", checking.Id.Pos.I, checking.Id.Pos.J)
 		// continue
 		if checking.Id.Pos.I == target.I && checking.Id.Pos.J == target.J {
-			fmt.Printf("Target reached with heat loss: %v\n", checking.Id.HeatLoss)
 			if checking.Id.HeatLoss < minimalHeatLoss {
+				fmt.Printf("Target reached with heat loss: %v\n", checking.Id.HeatLoss)
 				minimalHeatLoss = checking.Id.HeatLoss
 			}
 			continue
@@ -189,6 +196,7 @@ func FindMinimalPath(matrix [][]int, target Pair, minStepCount, maxStepCount int
 	return minimalHeatLoss
 }
 
+// It expects that the received block is the block that represents an already taken step.
 func insertSteps(matrix [][]int, toBeChecked *PriorityQueue, target Pair, minStepCount, maxStepCount int, block Block, blockValid bool) {
 	for k := 1; k <= maxStepCount; k++ {
 		if !blockValid {
@@ -204,7 +212,6 @@ func insertSteps(matrix [][]int, toBeChecked *PriorityQueue, target Pair, minSte
 }
 
 func insert(toBeChecked *PriorityQueue, block Block) {
-	// fmt.Printf("%p\n", &block)
 	heap.Push(toBeChecked, &block)
 }
 
