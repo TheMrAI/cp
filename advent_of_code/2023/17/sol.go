@@ -116,6 +116,12 @@ func PartOne(matrix [][]int) int {
 }
 
 // First solution didn't finish for the big input in 10 minutes.
+// After removing the queued nonsense, memory usage stays constant and
+// it finishes in:
+// real    5m27.100s
+// user    5m56.545s
+// sys     0m1.301s
+// but it gives incorrect answer on the big input.
 func PartTwo(matrix [][]int) int {
 	target := Pair{len(matrix) - 1, len(matrix[0]) - 1}
 	return FindMinimalPath(matrix, target, 4, 10)
@@ -142,18 +148,19 @@ func FindMinimalPath(matrix [][]int, target Pair, minStepCount, maxStepCount int
 	}
 	minimalHeatLoss := math.MaxInt
 
-	queued := map[BlockId]struct{}{}
 	toBeChecked := PriorityQueue{}
 	heap.Init(&toBeChecked)
 	// We add two search points immediately. Since we can never go forward first without turning, to cover all
 	// starting possibilities we pretend we arrived there from 2 directions.
 	starterBlockIdOne := BlockId{Pair{0, 0}, Right, 0, 1}
 	starterBlockIdTwo := BlockId{Pair{0, 0}, Down, 0, 1}
-	insertSteps(matrix, &toBeChecked, queued, target, minStepCount, maxStepCount, Block{starterBlockIdOne, ManhattanDistance(Pair{0, 0}, target), 0}, true)
-	insertSteps(matrix, &toBeChecked, queued, target, minStepCount, maxStepCount, Block{starterBlockIdTwo, ManhattanDistance(Pair{0, 0}, target), 0}, true)
+	insertSteps(matrix, &toBeChecked, target, minStepCount, maxStepCount, Block{starterBlockIdOne, ManhattanDistance(Pair{0, 0}, target), 0}, true)
+	insertSteps(matrix, &toBeChecked, target, minStepCount, maxStepCount, Block{starterBlockIdTwo, ManhattanDistance(Pair{0, 0}, target), 0}, true)
 
 	for len(toBeChecked) != 0 {
 		checking := heap.Pop(&toBeChecked).(*Block)
+		// fmt.Println(checking)
+		// continue
 		if checking.Id.Pos.I == target.I && checking.Id.Pos.J == target.J {
 			fmt.Printf("Target reached with heat loss: %v\n", checking.Id.HeatLoss)
 			if checking.Id.HeatLoss < minimalHeatLoss {
@@ -173,16 +180,16 @@ func FindMinimalPath(matrix [][]int, target Pair, minStepCount, maxStepCount int
 		}
 
 		leftBlock, leftValid := getBlockOnLeft(matrix, target, *checking)
-		insertSteps(matrix, &toBeChecked, queued, target, minStepCount, maxStepCount, leftBlock, leftValid)
+		insertSteps(matrix, &toBeChecked, target, minStepCount, maxStepCount, leftBlock, leftValid)
 
 		rightBlock, rightValid := getBlockOnRight(matrix, target, *checking)
-		insertSteps(matrix, &toBeChecked, queued, target, minStepCount, maxStepCount, rightBlock, rightValid)
+		insertSteps(matrix, &toBeChecked, target, minStepCount, maxStepCount, rightBlock, rightValid)
 	}
 
 	return minimalHeatLoss
 }
 
-func insertSteps(matrix [][]int, toBeChecked *PriorityQueue, queued map[BlockId]struct{}, target Pair, minStepCount, maxStepCount int, block Block, blockValid bool) {
+func insertSteps(matrix [][]int, toBeChecked *PriorityQueue, target Pair, minStepCount, maxStepCount int, block Block, blockValid bool) {
 	for k := 1; k <= maxStepCount; k++ {
 		if !blockValid {
 			break
@@ -191,17 +198,14 @@ func insertSteps(matrix [][]int, toBeChecked *PriorityQueue, queued map[BlockId]
 			block, blockValid = nextBlock(matrix, target, block)
 			continue
 		}
-		insert(toBeChecked, queued, block)
+		insert(toBeChecked, block)
 		block, blockValid = nextBlock(matrix, target, block)
 	}
 }
 
-func insert(toBeChecked *PriorityQueue, queued map[BlockId]struct{}, block Block) {
-	_, alreadyQueued := queued[block.Id]
-	if !alreadyQueued {
-		heap.Push(toBeChecked, &block)
-		queued[block.Id] = struct{}{}
-	}
+func insert(toBeChecked *PriorityQueue, block Block) {
+	// fmt.Printf("%p\n", &block)
+	heap.Push(toBeChecked, &block)
 }
 
 func getBlockOnLeft(matrix [][]int, target Pair, block Block) (Block, bool) {
