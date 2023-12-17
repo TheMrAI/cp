@@ -60,10 +60,10 @@ func DirToOffsets(dir Direction) Pair {
 }
 
 type BlockId struct {
-	Pos              Pair
-	Dir              Direction
-	HeatLoss         int
-	ForwardRemaining int
+	Pos        Pair
+	Dir        Direction
+	HeatLoss   int
+	StepsTaken int // how many steps did we take in a straight line
 }
 
 type Block struct {
@@ -111,27 +111,46 @@ func (pq *PriorityQueue) Pop() any {
 // sys     0m12.837s
 // and it eats up a whopping 30 GiB of memory
 func PartOne(matrix [][]int) int {
+	target := Pair{len(matrix) - 1, len(matrix[0]) - 1}
+	return FindMinimalPath(matrix, target, 1, 3)
+}
+
+// First solution didn't finish for the big input in 10 minutes.
+func PartTwo(matrix [][]int) int {
+	target := Pair{len(matrix) - 1, len(matrix[0]) - 1}
+	return FindMinimalPath(matrix, target, 4, 10)
+}
+
+type MinimalHeatLoss [][]int // indexed by direction, then by steps taken - minimumStepCount
+
+// no support for handling the start point, for that we would have to programmatically find
+// the starting directions and it isn't necessary here
+func FindMinimalPath(matrix [][]int, target Pair, minStepCount, maxStepCount int) int {
+	minimalHeatLosses := make([][]MinimalHeatLoss, len(matrix))
+	for i := range minimalHeatLosses {
+		row := make([]MinimalHeatLoss, len(matrix[0]))
+		for j := range row {
+			row[j] = make(MinimalHeatLoss, 4)
+			for dir := range row[j] {
+				row[j][dir] = make([]int, 1+maxStepCount-minStepCount)
+				for step := range row[j][dir] {
+					row[j][dir][step] = math.MaxInt
+				}
+			}
+		}
+		minimalHeatLosses[i] = row
+	}
 	minimalHeatLoss := math.MaxInt
 
-	target := Pair{len(matrix) - 1, len(matrix[0]) - 1}
-
 	queued := map[BlockId]struct{}{}
-	// We add two search points immediately. In both going forward
-	// is disallowed, so both can only go sideways.
-	// This way we can cover all initial options.
-	// Compare two options:
-	// - Go right, we could go 1, 2 steps
-	// - However, we can actually go up to 3 steps in a straight line. For example
-	//   if we are aimed Down, rotate to the left, then on the next round go forward 1, 2 steps
-	// To allow this 3 step chain initially we must force the first steps as rotate.
-	starterBlockIdOne := BlockId{Pair{0, 0}, Right, 0, 0}
-	starterBlockIdTwo := BlockId{Pair{0, 0}, Down, 0, 0}
-	queued[starterBlockIdOne] = struct{}{}
-	queued[starterBlockIdTwo] = struct{}{}
 	toBeChecked := PriorityQueue{}
 	heap.Init(&toBeChecked)
-	heap.Push(&toBeChecked, &Block{starterBlockIdOne, ManhattanDistance(starterBlockIdOne.Pos, target), 0})
-	heap.Push(&toBeChecked, &Block{starterBlockIdTwo, ManhattanDistance(starterBlockIdTwo.Pos, target), 0})
+	// We add two search points immediately. Since we can never go forward first without turning, to cover all
+	// starting possibilities we pretend we arrived there from 2 directions.
+	starterBlockIdOne := BlockId{Pair{0, 0}, Right, 0, 1}
+	starterBlockIdTwo := BlockId{Pair{0, 0}, Down, 0, 1}
+	insertSteps(matrix, &toBeChecked, queued, target, minStepCount, maxStepCount, Block{starterBlockIdOne, ManhattanDistance(Pair{0, 0}, target), 0}, true)
+	insertSteps(matrix, &toBeChecked, queued, target, minStepCount, maxStepCount, Block{starterBlockIdTwo, ManhattanDistance(Pair{0, 0}, target), 0}, true)
 
 	for len(toBeChecked) != 0 {
 		checking := heap.Pop(&toBeChecked).(*Block)
@@ -143,6 +162,10 @@ func PartOne(matrix [][]int) int {
 			continue
 		}
 
+		if checking.Id.HeatLoss >= minimalHeatLosses[checking.Id.Pos.I][checking.Id.Pos.J][checking.Id.Dir][checking.Id.StepsTaken-minStepCount] {
+			continue
+		}
+		minimalHeatLosses[checking.Id.Pos.I][checking.Id.Pos.J][checking.Id.Dir][checking.Id.StepsTaken-minStepCount] = checking.Id.HeatLoss
 		// If we assume just 1 heat lost per block, based on the current heat loss and manhattan distance
 		// we can be absolutely sure, this branch can't bring an improvement.
 		if checking.priority+checking.Id.HeatLoss >= minimalHeatLoss {
@@ -150,28 +173,34 @@ func PartOne(matrix [][]int) int {
 		}
 
 		leftBlock, leftValid := getBlockOnLeft(matrix, target, *checking)
-		insertIfValid(&toBeChecked, queued, leftBlock, leftValid)
+		insertSteps(matrix, &toBeChecked, queued, target, minStepCount, maxStepCount, leftBlock, leftValid)
+
 		rightBlock, rightValid := getBlockOnRight(matrix, target, *checking)
-		insertIfValid(&toBeChecked, queued, rightBlock, rightValid)
-		if checking.Id.ForwardRemaining > 0 {
-			// We only ever can go forward one or two steps. This is because after a turn
-			// we have already made a step in a given direction, thus allowing to take more than
-			// 2 steps would mean, we could move more than 3 steps in total.
-			frontBlock, frontValid := getBlockOnFront(matrix, target, *checking)
-			insertIfValid(&toBeChecked, queued, frontBlock, frontValid)
-		}
+		insertSteps(matrix, &toBeChecked, queued, target, minStepCount, maxStepCount, rightBlock, rightValid)
 	}
 
 	return minimalHeatLoss
 }
 
-func insertIfValid(toBeChecked *PriorityQueue, queued map[BlockId]struct{}, block Block, valid bool) {
-	if valid {
-		_, alreadyQueued := queued[block.Id]
-		if !alreadyQueued {
-			heap.Push(toBeChecked, &block)
-			queued[block.Id] = struct{}{}
+func insertSteps(matrix [][]int, toBeChecked *PriorityQueue, queued map[BlockId]struct{}, target Pair, minStepCount, maxStepCount int, block Block, blockValid bool) {
+	for k := 1; k <= maxStepCount; k++ {
+		if !blockValid {
+			break
 		}
+		if block.Id.StepsTaken < minStepCount {
+			block, blockValid = nextBlock(matrix, target, block)
+			continue
+		}
+		insert(toBeChecked, queued, block)
+		block, blockValid = nextBlock(matrix, target, block)
+	}
+}
+
+func insert(toBeChecked *PriorityQueue, queued map[BlockId]struct{}, block Block) {
+	_, alreadyQueued := queued[block.Id]
+	if !alreadyQueued {
+		heap.Push(toBeChecked, &block)
+		queued[block.Id] = struct{}{}
 	}
 }
 
@@ -183,7 +212,7 @@ func getBlockOnLeft(matrix [][]int, target Pair, block Block) (Block, bool) {
 		return Block{}, false
 	}
 	leftHeatLoss := block.Id.HeatLoss + matrix[leftPos.I][leftPos.J]
-	leftBlockId := BlockId{leftPos, leftDir, leftHeatLoss, 2}
+	leftBlockId := BlockId{leftPos, leftDir, leftHeatLoss, 1} // we took one step
 	return Block{leftBlockId, ManhattanDistance(leftPos, target), 0}, true
 }
 
@@ -195,18 +224,18 @@ func getBlockOnRight(matrix [][]int, target Pair, block Block) (Block, bool) {
 		return Block{}, false
 	}
 	rightHeatLoss := block.Id.HeatLoss + matrix[rightPos.I][rightPos.J]
-	rightBlockId := BlockId{rightPos, rightDir, rightHeatLoss, 2}
+	rightBlockId := BlockId{rightPos, rightDir, rightHeatLoss, 1} // we took one step
 	return Block{rightBlockId, ManhattanDistance(rightPos, target), 0}, true
 }
 
-func getBlockOnFront(matrix [][]int, target Pair, block Block) (Block, bool) {
+func nextBlock(matrix [][]int, target Pair, block Block) (Block, bool) {
 	frontOffset := DirToOffsets(block.Id.Dir)
 	frontPos := Pair{block.Id.Pos.I + frontOffset.I, block.Id.Pos.J + frontOffset.J}
 	if frontPos.I < 0 || frontPos.I >= len(matrix) || frontPos.J < 0 || frontPos.J >= len(matrix[0]) {
 		return Block{}, false
 	}
 	frontHeatLoss := block.Id.HeatLoss + matrix[frontPos.I][frontPos.J]
-	frontBlockId := BlockId{frontPos, block.Id.Dir, frontHeatLoss, block.Id.ForwardRemaining - 1}
+	frontBlockId := BlockId{frontPos, block.Id.Dir, frontHeatLoss, block.Id.StepsTaken + 1}
 	return Block{frontBlockId, ManhattanDistance(frontPos, target), 0}, true
 }
 
@@ -235,6 +264,8 @@ func main() {
 		fmt.Println(d)
 	}
 
-	fmt.Println("Part one")
-	fmt.Printf("Path length with minimal heat loss: %v\n", PartOne(data))
+	// fmt.Println("Part one")
+	// fmt.Printf("Path length with minimal heat loss: %v\n", PartOne(data))
+	fmt.Println("Part two")
+	fmt.Printf("Path length with minimal heat loss using ULTRA crucibles: %v\n", PartTwo(data))
 }
