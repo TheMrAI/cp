@@ -50,7 +50,7 @@ func PartTwo(maze []string) int {
 	for i := range path {
 		if i > 0 {
 			// we must mark the same location with the previous direction to handle the bends
-			left, right := getSides(markerMaze, path[i].Location, path[i-1].Direction, 'O')
+			left, right := getSides(markerMaze, path[i].Location, path[i-1].Direction)
 			if insertIfUnmarked(markerMaze, onLeft, left) {
 				markerMaze[left.I][left.J] = '.'
 			}
@@ -58,7 +58,7 @@ func PartTwo(maze []string) int {
 				markerMaze[right.I][right.J] = ':'
 			}
 		}
-		left, right := getSides(markerMaze, path[i].Location, path[i].Direction, 'O')
+		left, right := getSides(markerMaze, path[i].Location, path[i].Direction)
 		if insertIfUnmarked(markerMaze, onLeft, left) {
 			markerMaze[left.I][left.J] = '.'
 		}
@@ -124,7 +124,7 @@ func growGroup(markerMaze [][]rune, toProcess map[Pair]struct{}, emptyMarker run
 	return outerGroupConfirmed
 }
 
-func getSides(markerMaze [][]rune, location, direction Pair, pipeSymbol rune) (Pair, Pair) {
+func getSides(markerMaze [][]rune, location, direction Pair) (Pair, Pair) {
 	leftOffset, rightOffset := GetLeftRightOffsets(direction)
 	leftLocation := Pair{location.I + leftOffset.I, location.J + leftOffset.J}
 	rightLocation := Pair{location.I + rightOffset.I, location.J + rightOffset.J}
