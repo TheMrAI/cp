@@ -25,8 +25,6 @@ type Check struct {
 	NextCheck  string
 }
 
-type Workflows map[string][]Check
-
 type Part struct {
 	X int
 	M int
@@ -60,8 +58,8 @@ func (part Part) GetValueForField(fieldName string) int {
 	return -1
 }
 
-func ParseInput(lines []string) (Workflows, []Part) {
-	workflows := Workflows{}
+func ParseInput(lines []string) (map[string][]Check, []Part) {
+	workflows := map[string][]Check{}
 
 	workflowLine := regexp.MustCompile("(\\w+){(.*)}")
 	workflowCheck := regexp.MustCompile("(\\w+)(<|>)(-?\\d+):(\\w+)")
@@ -117,7 +115,7 @@ func ParseInput(lines []string) (Workflows, []Part) {
 	return workflows, parts
 }
 
-func PartOne(workflows Workflows, parts []Part) int {
+func PartOne(workflows map[string][]Check, parts []Part) int {
 	accepted, _ := SortParts(workflows, parts)
 	total := 0
 	for _, part := range accepted {
@@ -126,7 +124,7 @@ func PartOne(workflows Workflows, parts []Part) int {
 	return total
 }
 
-func SortParts(workflows Workflows, parts []Part) ([]Part, []Part) {
+func SortParts(workflows map[string][]Check, parts []Part) ([]Part, []Part) {
 	accepted := []Part{}
 	rejected := []Part{}
 
@@ -162,6 +160,153 @@ func SortParts(workflows Workflows, parts []Part) ([]Part, []Part) {
 	return accepted, rejected
 }
 
+type Range struct {
+	Start int
+	Last  int // inclusive!
+}
+
+func (r Range) Valid() bool {
+	if r.Start <= r.Last {
+		return true
+	}
+	return false
+}
+
+func (r Range) Distance() int {
+	return 1 + r.Last - r.Start
+}
+
+func (r *Range) Adjust(compMethod Comparator, value int, shouldPass bool) {
+	switch compMethod {
+	case Less:
+		{
+			if shouldPass {
+				r.Last = value - 1
+				return
+			}
+			r.Start = value
+		}
+	case More:
+		{
+			if shouldPass {
+				r.Start = value + 1
+				return
+			}
+			r.Last = value
+		}
+	case Pass:
+		{
+			return // if pass the range doesn't change
+		}
+	default:
+		{
+			log.Fatalf("Unexpected comparator received: '%v'\n", compMethod)
+		}
+	}
+}
+
+type Constraints struct {
+	X Range
+	M Range
+	A Range
+	S Range
+}
+
+func (c Constraints) Valid() bool {
+	return c.X.Valid() && c.M.Valid() && c.A.Valid() && c.S.Valid()
+}
+
+func (c Constraints) GetField(fieldName string) Range {
+	switch fieldName {
+	case "x":
+		{
+			return c.X
+		}
+	case "m":
+		{
+			return c.M
+		}
+	case "a":
+		{
+			return c.A
+		}
+	case "s":
+		{
+			return c.S
+		}
+	default:
+		{
+			log.Fatalf("Unexpected fieldName received: '%v'\n", fieldName)
+		}
+	}
+	return Range{}
+}
+
+func (c *Constraints) SetField(fieldName string, r Range) {
+	switch fieldName {
+	case "x":
+		{
+			c.X = r
+		}
+	case "m":
+		{
+			c.M = r
+		}
+	case "a":
+		{
+			c.A = r
+		}
+	case "s":
+		{
+			c.S = r
+		}
+	default:
+		{
+			log.Fatalf("Unexpected fieldName received: '%v'\n", fieldName)
+		}
+	}
+}
+
+func PartTwo(workflows map[string][]Check, rangeStart, rangeLast int) int {
+	return countDistinctCombinations(workflows, "in", 0, Constraints{Range{rangeStart, rangeLast}, Range{rangeStart, rangeLast}, Range{rangeStart, rangeLast}, Range{rangeStart, rangeLast}})
+}
+
+func countDistinctCombinations(workflows map[string][]Check, currentWorkflow string, checkIndex int, currentConstraints Constraints) int {
+	if !currentConstraints.Valid() {
+		return 0
+	}
+	if currentWorkflow == "A" {
+		return currentConstraints.X.Distance() * currentConstraints.M.Distance() * currentConstraints.A.Distance() * currentConstraints.S.Distance()
+	}
+	if currentWorkflow == "R" {
+		return 0
+	}
+	check := workflows[currentWorkflow][checkIndex]
+	// a final transition state reached
+	if len(check.Field) == 0 {
+		return countDistinctCombinations(workflows, check.NextCheck, 0, currentConstraints)
+	}
+
+	// generate adjusted passing and failing ranges and branch off to count them all
+	constraintsAfterPass, constraintsAfterFail := GeneratePassFailConstraints(currentConstraints, check.Field, check.CompMethod, check.Value)
+	optionsCount := countDistinctCombinations(workflows, check.NextCheck, 0, constraintsAfterPass) + countDistinctCombinations(workflows, currentWorkflow, checkIndex+1, constraintsAfterFail)
+
+	return optionsCount
+}
+
+func GeneratePassFailConstraints(c Constraints, field string, compMethod Comparator, value int) (Constraints, Constraints) {
+	passed := Constraints{c.X, c.M, c.A, c.S}
+	passingRange := passed.GetField(field)
+	passingRange.Adjust(compMethod, value, true)
+	passed.SetField(field, passingRange)
+
+	failed := Constraints{c.X, c.M, c.A, c.S}
+	failingRange := failed.GetField(field)
+	failingRange.Adjust(compMethod, value, false)
+	failed.SetField(field, failingRange)
+	return passed, failed
+}
+
 func main() {
 	scanner := bufio.NewScanner(os.Stdin)
 	lines := []string{}
@@ -174,4 +319,6 @@ func main() {
 
 	fmt.Println("Part one")
 	fmt.Printf("Sum of all accepted rating numbers: %v\n", PartOne(workflows, parts))
+	fmt.Println("Part two")
+	fmt.Printf("Total number of accepted distinct possible combinations: %v\n", PartTwo(workflows, 1, 4000))
 }
