@@ -110,6 +110,7 @@ func DigDirectionsToLineSegments(startPoint Pair, digSteps []DigStep, parseFromC
 		case Left:
 			lastPoint.J -= digCount
 		}
+
 		lineSegments = append(lineSegments, LineSegment{currentPoint, lastPoint})
 		currentPoint = lastPoint
 	}
@@ -134,27 +135,32 @@ func Max(lhs, rhs int) int {
 func PartOne(data []DigStep) int {
 	lineSegments := DigDirectionsToLineSegments(Pair{0, 0}, data, false)
 	matrix := LineSegmentsToMatrix(lineSegments)
-	for i := range matrix {
-		for j := range matrix[i] {
-			fmt.Printf("%c", matrix[i][j])
-		}
-		fmt.Println()
-	}
-	fmt.Println()
+	// for i := range matrix {
+	// 	fmt.Printf("%3.v ", i)
+	// 	for j := range matrix[i] {
+	// 		fmt.Printf("%c", matrix[i][j])
+	// 	}
+	// 	fmt.Println()
+	// }
+	// fmt.Println()
 	excavated := Excavate(matrix)
 	for i := range excavated {
+		fmt.Printf("%3.v ", i)
 		for j := range excavated[i] {
 			fmt.Printf("%c", excavated[i][j])
 		}
 		fmt.Println()
 	}
 	count := 0
-	for _, row := range excavated {
+	for i, row := range excavated {
+		rowCount := 0
 		for _, val := range row {
 			if val == '#' {
 				count++
+				rowCount++
 			}
 		}
+		fmt.Printf("i: %v - %v\n", i, rowCount)
 	}
 	return count
 }
@@ -312,158 +318,132 @@ func Excavate(matrix [][]byte) [][]byte {
 // Alright all right, all right. Grug dev has to do complexity demon because there
 // isn't enough memory in the universe to load this abomination in.
 // What we do is a scanline solution.
-// Order the segments by coordinates, then scan from top to bottom.
-// On each horizontal section we decide what it does:
-// - if it is disjoint or extends previous ones, it builds
-// - if it is in the middle of a section it cuts
 func PartTwo(data []DigStep) int {
 	lineSegments := DigDirectionsToLineSegments(Pair{0, 0}, data, false)
 
-	horizontals := []LineSegment{}
-	for i := range lineSegments {
-		if lineSegments[i].StartPoint.I != lineSegments[i].LastPoint.I {
+	verticalSegments := []LineSegment{}
+	for _, segment := range lineSegments {
+		if segment.StartPoint.I == segment.LastPoint.I {
 			continue
 		}
-		// based on how we built the line segments we know that next to a horizontal section there can only be
-		// two vertical ones
-		horizontal := LineSegment{lineSegments[i].StartPoint, lineSegments[i].LastPoint}
-		// swap the points so that J always increases from StartPoint -> LastPoint
-		if horizontal.StartPoint.J > horizontal.LastPoint.J {
-			horizontal.StartPoint, horizontal.LastPoint = horizontal.LastPoint, horizontal.StartPoint
+		if segment.StartPoint.I < segment.LastPoint.I {
+			verticalSegments = append(verticalSegments, segment)
+			continue
 		}
-		horizontals = append(horizontals, horizontal)
+		verticalSegments = append(verticalSegments, LineSegment{segment.LastPoint, segment.StartPoint})
 	}
-
 	// prepping the data for the sweep-line
-	sort.Slice(horizontals, func(i, j int) bool {
-		iHeight := horizontals[i].StartPoint.I
-		jHeight := horizontals[j].StartPoint.I
-		if iHeight == jHeight {
-			return horizontals[i].StartPoint.J < horizontals[j].StartPoint.J
-		}
-		return iHeight < jHeight
+	sort.Slice(verticalSegments, func(lhs, rhs int) bool {
+		return verticalSegments[lhs].StartPoint.I < verticalSegments[rhs].StartPoint.I
 	})
-
-	for i := range horizontals {
-		fmt.Printf("i: %v, %v\n", i, horizontals[i])
+	heightZero := verticalSegments[0].StartPoint.I
+	for _, l := range verticalSegments {
+		if l.StartPoint.I-heightZero == 13 || l.LastPoint.I-heightZero == 13 || l.StartPoint.I-heightZero == 12 {
+			fmt.Printf("%v - %v (%v)\n", l.StartPoint.I-heightZero, l.LastPoint.I-heightZero, l.StartPoint.J)
+		}
 	}
 
-	activeHorizontals, i := horizontalWithSameHeightFrom(horizontals, 0)
-	totalExcavated := 0
-	for _, active := range activeHorizontals {
-		totalExcavated += active.Length()
-	}
-	for i < len(horizontals) {
-		currentHeigh := horizontals[i].StartPoint.I
-		for j, active := range activeHorizontals {
-			width := active.Length()
-			// fmt.Printf("Width: %v\n", width)
-			height := Abs(active.StartPoint.I-currentHeigh) - 1
-			// fmt.Printf("Active: %v, currentHeight: %v\n", active, currentHeigh)
-			fmt.Printf("Excavated this round: %v (total: %v)\n", width*height, totalExcavated)
-			totalExcavated += width * height
-			// adjust height of active element after being accounted for
-			activeHorizontals[j].StartPoint = Pair{currentHeigh, active.StartPoint.J}
-			activeHorizontals[j].LastPoint = Pair{currentHeigh, active.LastPoint.J}
-		}
+	scanHeight := verticalSegments[0].StartPoint.I
+	activeVerticals, i := updateActiveVerticals(verticalSegments, 0, scanHeight, []LineSegment{})
+	fmt.Println(activeVerticals)
+	totalExcavated := sumDistances(generateHorizontalDistances(activeVerticals))
+	for len(activeVerticals) != 0 {
+		prevHeight := scanHeight
+		scanHeight = findNextChangeHeight(activeVerticals, scanHeight)
+		fmt.Printf("Current scan height: %v\n", scanHeight)
+		currentDistances := generateHorizontalDistances(activeVerticals)
+		excavatedInRow := sumDistances(currentDistances)
+		// fmt.Printf("Hop exc: %v\n", excavatedInRow*(scanHeight-prevHeight-1))
+		totalExcavated += excavatedInRow * (scanHeight - prevHeight - 1)
+		activeVerticals, i = updateActiveVerticals(verticalSegments, i, scanHeight, activeVerticals)
+		fmt.Printf("Active vert: %v\n", activeVerticals)
+		nextDistances := generateHorizontalDistances(activeVerticals)
 
-		sameHeightSegments, sameHeightUntil := horizontalWithSameHeightFrom(horizontals, i)
-		zippedHorizontals := zipLineSegmentSlices(activeHorizontals, sameHeightSegments)
-		totalExcavated += countCoveredDistance(zippedHorizontals)
-		fmt.Printf("Transition ex: %v\n", countCoveredDistance(zippedHorizontals))
-
-		fmt.Printf("Zipped: %v\n", zippedHorizontals)
-		// generate new activeHorizontals by merging or dividing existing ones
-		// this is made easier by ordering the horizontals on the j axis as well
-		nextActiveHorizontals := []LineSegment{}
-		for zIndex := 0; zIndex < len(zippedHorizontals); zIndex++ {
-			if len(nextActiveHorizontals) == 0 {
-				nextActiveHorizontals = append(nextActiveHorizontals, zippedHorizontals[zIndex])
-				continue
-			}
-			lastIndex := len(nextActiveHorizontals) - 1
-			if nextActiveHorizontals[lastIndex].LastPoint.J < zippedHorizontals[zIndex].StartPoint.J {
-				// just add
-				fmt.Println("Add")
-				nextActiveHorizontals = append(nextActiveHorizontals, zippedHorizontals[zIndex])
-			} else if nextActiveHorizontals[lastIndex].LastPoint.J == zippedHorizontals[zIndex].StartPoint.J {
-				// concatenate horizontal segment
-				fmt.Println("Concat")
-				nextActiveHorizontals[lastIndex].LastPoint.J = zippedHorizontals[zIndex].LastPoint.J
-			} else if nextActiveHorizontals[lastIndex].StartPoint.J == zippedHorizontals[zIndex].StartPoint.J {
-				// shorten segment
-				fmt.Println("Short")
-				nextActiveHorizontals[lastIndex].StartPoint.J = zippedHorizontals[zIndex].LastPoint.J
-			} else if zippedHorizontals[zIndex].LastPoint.J == nextActiveHorizontals[lastIndex].LastPoint.J {
-				// shorten segment
-				fmt.Println("Short")
-				nextActiveHorizontals[lastIndex].LastPoint.J = zippedHorizontals[zIndex].StartPoint.J
-			} else if nextActiveHorizontals[lastIndex].StartPoint.J < zippedHorizontals[zIndex].StartPoint.J && zippedHorizontals[zIndex].LastPoint.J < nextActiveHorizontals[lastIndex].LastPoint.J {
-				// chop
-				fmt.Println("Chop")
-				firstPart := LineSegment{nextActiveHorizontals[lastIndex].StartPoint, zippedHorizontals[zIndex].StartPoint}
-				secondPart := LineSegment{zippedHorizontals[zIndex].LastPoint, nextActiveHorizontals[lastIndex].LastPoint}
-				nextActiveHorizontals = nextActiveHorizontals[:len(nextActiveHorizontals)-1]
-				nextActiveHorizontals = append(nextActiveHorizontals, firstPart, secondPart)
-			} else {
-				log.Fatalf("Unexpected state achieved. Check logic.")
-			}
-		}
-		activeHorizontals = nextActiveHorizontals
-		fmt.Printf("Next actives: %v\n", activeHorizontals)
-		i = sameHeightUntil
+		transitionRowDistances := mergeSumDistances(currentDistances, nextDistances)
+		totalExcavated += transitionRowDistances
+		fmt.Printf("i: %v - %v\n", scanHeight-heightZero, transitionRowDistances)
+		fmt.Printf("Height: %v, PrevH: %v, Excavate in row: %v\n", scanHeight, prevHeight, transitionRowDistances)
+		// fmt.Printf("Total exc: %v\n", totalExcavated)
 	}
 
 	return totalExcavated
 }
 
-func horizontalWithSameHeightFrom(segments []LineSegment, fromIndex int) ([]LineSegment, int) {
-	sameHeightIndex := fromIndex
-	sameHeightUntil := fromIndex + 1
-	for ; sameHeightUntil < len(segments) && segments[sameHeightUntil].StartPoint.I == segments[sameHeightIndex].StartPoint.I; sameHeightUntil++ {
+// vertical lines have to appear in pairs, if not, we messed up
+func generateHorizontalDistances(activeVerticals []LineSegment) []Pair {
+	horizontalDistances := []Pair{}
+	for i := 1; i < len(activeVerticals); i += 2 {
+		horizontalDistances = append(horizontalDistances, Pair{activeVerticals[i-1].StartPoint.J, activeVerticals[i].StartPoint.J})
 	}
-	sameHeightSegments := segments[sameHeightIndex:sameHeightUntil]
-	return sameHeightSegments, sameHeightUntil
+	return horizontalDistances
 }
 
-func zipLineSegmentSlices(lhs []LineSegment, rhs []LineSegment) []LineSegment {
-	zippedHorizontals := []LineSegment{}
-	lhsIndex := 0
-	rhsIndex := 0
-	for lhsIndex < len(lhs) && rhsIndex < len(rhs) {
-		if lhs[lhsIndex].StartPoint.J <= rhs[rhsIndex].StartPoint.J {
-			zippedHorizontals = append(zippedHorizontals, lhs[lhsIndex])
-			lhsIndex++
-			continue
+// A bit tricky. We use the current distances as a mask and combine all ranges
+// covered by it from next distances.  
+func mergeSumDistances(currentDistances []Pair, nextDistances []Pair) int {
+	combined := currentDistances
+	combined = append(combined, nextDistances...)
+
+	sort.Slice(combined, func(i, j int) bool {
+		return combined[i].I < combined[j].I
+	})
+
+	merged := []Pair{}
+	for i := 0; i < len(combined); {
+		merged = append(merged, combined[i])
+		last := len(merged) - 1
+		j := i + 1
+		for ; j < len(combined); j++ {
+			if (merged[last].I <= combined[j].I && combined[j].I <= merged[last].J) || (merged[last].I <= combined[j].J && combined[j].J <= merged[last].J) {
+				if merged[last].J < combined[j].J {
+					merged[last].J = combined[j].J
+				}
+				continue
+			}
+			break
 		}
-		zippedHorizontals = append(zippedHorizontals, rhs[rhsIndex])
-		rhsIndex++
+		i = j
 	}
-	if lhsIndex < len(lhs) {
-		zippedHorizontals = append(zippedHorizontals, lhs[lhsIndex:]...)
-	}
-	if rhsIndex < len(rhs) {
-		zippedHorizontals = append(zippedHorizontals, rhs[rhsIndex:]...)
-	}
-	return zippedHorizontals
+	fmt.Println(merged)
+	return sumDistances(merged)
 }
 
-func countCoveredDistance(segments []LineSegment) int {
-	totalCovered := 0
-	coveredUntil := 0
-	for i := range segments {
-		if i == 0 ||coveredUntil <= segments[i].StartPoint.J {
-			totalCovered = segments[i].Length()
-			coveredUntil = segments[i].LastPoint.J + 1
-			continue
-		}
-		if coveredUntil >= segments[i].LastPoint.J {
-			continue
-		}
-		totalCovered += 1 + segments[i].LastPoint.J - coveredUntil
-		coveredUntil = segments[i].LastPoint.J + 1
+func sumDistances(distances []Pair) int {
+	sum := 0
+	for _, distance := range distances {
+		sum += 1 + distance.J - distance.I
 	}
-	return totalCovered
+	return sum
+}
+
+func updateActiveVerticals(verticalSegments []LineSegment, i, scanHeight int, activeVerticals []LineSegment) ([]LineSegment, int) {
+	nextActives := []LineSegment{}
+	for ; i < len(verticalSegments); i++ {
+		if verticalSegments[i].StartPoint.I > scanHeight {
+			break
+		}
+		nextActives = append(nextActives, verticalSegments[i])
+	}
+	for _, activeSegment := range activeVerticals {
+		if activeSegment.LastPoint.I > scanHeight {
+			nextActives = append(nextActives, activeSegment)
+		}
+	}
+
+	sort.Slice(nextActives, func(lhs, rhs int) bool {
+		return nextActives[lhs].StartPoint.J < nextActives[rhs].StartPoint.J
+	})
+	return nextActives, i
+}
+
+func findNextChangeHeight(activeVerticals []LineSegment, previousHeight int) int {
+	closest := activeVerticals[0].LastPoint.I
+	for i := 1; i < len(activeVerticals); i++ {
+		if closest-previousHeight > activeVerticals[i].LastPoint.I-previousHeight {
+			closest = activeVerticals[i].LastPoint.I
+		}
+	}
+	return closest
 }
 
 func Abs(val int) int {
@@ -471,13 +451,6 @@ func Abs(val int) int {
 		return 0 - val
 	}
 	return val
-}
-
-func getJOnHeight(segment LineSegment, height int) int {
-	if segment.StartPoint.I == height {
-		return segment.StartPoint.J
-	}
-	return segment.LastPoint.J
 }
 
 func main() {
