@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"container/heap"
 	"fmt"
 	"log"
 	"math"
@@ -64,7 +65,7 @@ func convertNumber(number string) int {
 	return value
 }
 
-func PartOne(bricks []Brick) int {
+func SimulateBrickFall(bricks []Brick) {
 	minX := math.MaxInt
 	maxX := math.MinInt
 	minY := math.MaxInt
@@ -143,25 +144,6 @@ func PartOne(bricks []Brick) int {
 			bricks[bI].Supports[i] = struct{}{}
 		}
 	}
-
-	disintegrateCount := 0
-	for _, brick := range bricks {
-		if len(brick.Supports) == 0 {
-			disintegrateCount++
-			continue
-		}
-		supportedAllHaveMultiSupport := true
-		for supportedId := range brick.Supports {
-			if len(bricks[supportedId].SupportedBy) == 1 {
-				supportedAllHaveMultiSupport = false
-				break
-			}
-		}
-		if supportedAllHaveMultiSupport {
-			disintegrateCount++
-		}
-	}
-	return disintegrateCount
 }
 
 type IdHeight struct {
@@ -256,6 +238,131 @@ func Abs(val int) int {
 	return val
 }
 
+func PartOne(bricks []Brick) int {
+	disintegrateCount := 0
+	for _, brick := range bricks {
+		if len(brick.Supports) == 0 {
+			disintegrateCount++
+			continue
+		}
+		supportedAllHaveMultiSupport := true
+		for supportedId := range brick.Supports {
+			if len(bricks[supportedId].SupportedBy) == 1 {
+				supportedAllHaveMultiSupport = false
+				break
+			}
+		}
+		if supportedAllHaveMultiSupport {
+			disintegrateCount++
+		}
+	}
+	return disintegrateCount
+}
+
+func PartTwo(bricks []Brick) int {
+	// For each brick we will count how many times do we reach it with from
+	// individual bricks
+	// If the id counts for a given brick match it's len(SupportedBy) we
+	// can be sure that through all support paths the given id affects the brick
+	// and thus would cause it to eventually fall if removed.
+	brickIdPropagationCounts := make([]map[int]int, len(bricks))
+	for i := range brickIdPropagationCounts {
+		brickIdPropagationCounts[i] = map[int]int{}
+	}
+
+	bricksOnTheFloor := []int{}
+	for i := range bricks {
+		if len(bricks[i].SupportedBy) == 0 {
+			bricksOnTheFloor = append(bricksOnTheFloor, i)
+		}
+	}
+
+	propagateDependencyCountersBFT(bricks, bricksOnTheFloor, brickIdPropagationCounts)
+
+	propagatedDisintegrationCount := 0
+	for id := range bricks {
+		for _, count := range brickIdPropagationCounts[id] {
+			if count == len(bricks[id].SupportedBy) {
+				propagatedDisintegrationCount++
+			}
+		}
+	}
+
+	return propagatedDisintegrationCount
+}
+
+func propagateDependencyCountersBFT(bricks []Brick, bricksOnTheFloor []int, brickIdPropagationCounts []map[int]int) {
+	prepared := make([]bool, len(bricks))
+	toProcess := PriorityQueue{}
+	heap.Init(&toProcess)
+	for _, id := range bricksOnTheFloor {
+		heap.Push(&toProcess, &BrickByHeight{id, Min(bricks[id].A.Z, bricks[id].B.Z), 0})
+	}
+
+	for len(toProcess) != 0 {
+		checking := heap.Pop(&toProcess).(*BrickByHeight)
+		id := checking.Id
+
+		for supporterId := range bricks[id].SupportedBy {
+			// add immediate dependencies as one
+			brickIdPropagationCounts[id][supporterId] += 1
+			// increase dependency counts transitively
+			for transId, count := range brickIdPropagationCounts[supporterId] {
+				if count != len(bricks[supporterId].SupportedBy) {
+					continue
+				}
+				brickIdPropagationCounts[id][transId] += 1
+			}
+		}
+
+		for supportedId := range bricks[id].Supports {
+			if prepared[supportedId] {
+				continue
+			}
+			heap.Push(&toProcess, &BrickByHeight{supportedId, Min(bricks[supportedId].A.Z, bricks[supportedId].B.Z), 0})
+			prepared[supportedId] = true
+		}
+	}
+}
+
+type BrickByHeight struct {
+	Id       int
+	priority int
+	index    int
+}
+
+type PriorityQueue []*BrickByHeight
+
+func (pq PriorityQueue) Len() int { return len(pq) }
+
+func (pq PriorityQueue) Less(i, j int) bool {
+	// We want the lowest elevation first.
+	return pq[i].priority < pq[j].priority
+}
+
+func (pq PriorityQueue) Swap(i, j int) {
+	pq[i], pq[j] = pq[j], pq[i]
+	pq[i].index = i
+	pq[j].index = j
+}
+
+func (pq *PriorityQueue) Push(x any) {
+	n := len(*pq)
+	item := x.(*BrickByHeight)
+	item.index = n
+	*pq = append(*pq, item)
+}
+
+func (pq *PriorityQueue) Pop() any {
+	old := *pq
+	n := len(old)
+	item := old[n-1]
+	old[n-1] = nil
+	item.index = -1
+	*pq = old[0 : n-1]
+	return item
+}
+
 func main() {
 	scanner := bufio.NewScanner(os.Stdin)
 	lines := []string{}
@@ -265,8 +372,12 @@ func main() {
 	}
 
 	bricks := ParseInput(lines)
+	SimulateBrickFall(bricks)
 
 	// 468
 	fmt.Println("Part one")
 	fmt.Printf("The number of safely removable single bricks: %v\n", PartOne(bricks))
+	fmt.Println("Part two")
+	// too low 24047, 25576
+	fmt.Printf("The total number of cascade falling bricks: %v\n", PartTwo(bricks))
 }
