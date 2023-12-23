@@ -45,9 +45,6 @@
 # Images
 *.ppm
 
-# Special scratchpad for quick C++ code experimentation
-scratch*.cpp
-scratch*.in
-_s_*.cpp
-s_*.cpp
-s_*.in
+# Ignore input files (as I have found out these may be protected by licensing like for advent of code)
+*.in
+*.e_in
