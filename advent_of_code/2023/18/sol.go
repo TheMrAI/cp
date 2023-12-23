@@ -135,6 +135,7 @@ func Max(lhs, rhs int) int {
 func PartOne(data []DigStep) int {
 	lineSegments := DigDirectionsToLineSegments(Pair{0, 0}, data, false)
 	matrix := LineSegmentsToMatrix(lineSegments)
+	excavated := Excavate(matrix)
 	// for i := range matrix {
 	// 	fmt.Printf("%3.v ", i)
 	// 	for j := range matrix[i] {
@@ -143,14 +144,13 @@ func PartOne(data []DigStep) int {
 	// 	fmt.Println()
 	// }
 	// fmt.Println()
-	excavated := Excavate(matrix)
-	for i := range excavated {
-		fmt.Printf("%3.v ", i)
-		for j := range excavated[i] {
-			fmt.Printf("%c", excavated[i][j])
-		}
-		fmt.Println()
-	}
+	// for i := range excavated {
+	// 	fmt.Printf("%3.v ", i)
+	// 	for j := range excavated[i] {
+	// 		fmt.Printf("%c", excavated[i][j])
+	// 	}
+	// 	fmt.Println()
+	// }
 	count := 0
 	for i, row := range excavated {
 		rowCount := 0
@@ -317,133 +317,105 @@ func Excavate(matrix [][]byte) [][]byte {
 
 // Alright all right, all right. Grug dev has to do complexity demon because there
 // isn't enough memory in the universe to load this abomination in.
-// What we do is a scanline solution.
+// What we do is a scanline solution, from left to right, bottom to top, counting
+// the internal sections of the shape without the edges.
+// The algorithm may not be as efficient as it could be perhaps, but it is already rather
+// difficult to get it right and runs in less than a second for part one and two together with
+// compilation. So it isn't necessary to complicate any more.
 func PartTwo(data []DigStep) int {
-	lineSegments := DigDirectionsToLineSegments(Pair{0, 0}, data, false)
+	lineSegments := DigDirectionsToLineSegments(Pair{0, 0}, data, true)
+	verticalLines := LineSegmentsToVerticalLines(lineSegments)
 
-	verticalSegments := []LineSegment{}
-	for _, segment := range lineSegments {
-		if segment.StartPoint.I == segment.LastPoint.I {
-			continue
-		}
-		if segment.StartPoint.I < segment.LastPoint.I {
-			verticalSegments = append(verticalSegments, segment)
-			continue
-		}
-		verticalSegments = append(verticalSegments, LineSegment{segment.LastPoint, segment.StartPoint})
-	}
-	// prepping the data for the sweep-line
-	sort.Slice(verticalSegments, func(lhs, rhs int) bool {
-		return verticalSegments[lhs].StartPoint.I < verticalSegments[rhs].StartPoint.I
+	sort.Slice(verticalLines, func(i, j int) bool {
+		return verticalLines[i].Axis < verticalLines[j].Axis
 	})
-	heightZero := verticalSegments[0].StartPoint.I
-	for _, l := range verticalSegments {
-		if l.StartPoint.I-heightZero == 13 || l.LastPoint.I-heightZero == 13 || l.StartPoint.I-heightZero == 12 {
-			fmt.Printf("%v - %v (%v)\n", l.StartPoint.I-heightZero, l.LastPoint.I-heightZero, l.StartPoint.J)
+
+	totalExcavated := 0
+	for vI := range verticalLines {
+		vertical := verticalLines[vI]
+		if vertical.Terminating {
+			continue
+		}
+
+		for scan := vertical.A; scan <= vertical.B; scan++ {
+			// a horizontal starts from this point and goes to the left => not in internal section of the shape
+			if (scan == vertical.A && vertical.AHDelta > 0) || (scan == vertical.B && vertical.BHDelta > 0) {
+				continue
+			}
+			// find terminating vertical line
+			tV := vI + 1
+			for ; tV < len(verticalLines); tV++ {
+				if verticalLines[tV].A <= scan && scan <= verticalLines[tV].B {
+					break
+				}
+			}
+			verticalLines[tV].Terminating = true
+			totalExcavated += verticalLines[tV].Axis - vertical.Axis - 1
 		}
 	}
 
-	scanHeight := verticalSegments[0].StartPoint.I
-	activeVerticals, i := updateActiveVerticals(verticalSegments, 0, scanHeight, []LineSegment{})
-	fmt.Println(activeVerticals)
-	totalExcavated := sumDistances(generateHorizontalDistances(activeVerticals))
-	for len(activeVerticals) != 0 {
-		prevHeight := scanHeight
-		scanHeight = findNextChangeHeight(activeVerticals, scanHeight)
-		fmt.Printf("Current scan height: %v\n", scanHeight)
-		currentDistances := generateHorizontalDistances(activeVerticals)
-		excavatedInRow := sumDistances(currentDistances)
-		// fmt.Printf("Hop exc: %v\n", excavatedInRow*(scanHeight-prevHeight-1))
-		totalExcavated += excavatedInRow * (scanHeight - prevHeight - 1)
-		activeVerticals, i = updateActiveVerticals(verticalSegments, i, scanHeight, activeVerticals)
-		fmt.Printf("Active vert: %v\n", activeVerticals)
-		nextDistances := generateHorizontalDistances(activeVerticals)
-
-		transitionRowDistances := mergeSumDistances(currentDistances, nextDistances)
-		totalExcavated += transitionRowDistances
-		fmt.Printf("i: %v - %v\n", scanHeight-heightZero, transitionRowDistances)
-		fmt.Printf("Height: %v, PrevH: %v, Excavate in row: %v\n", scanHeight, prevHeight, transitionRowDistances)
-		// fmt.Printf("Total exc: %v\n", totalExcavated)
+	// add the original trench and remove the doubly counted end points once
+	for _, segment := range lineSegments {
+		totalExcavated += segment.Length()
 	}
-
+	totalExcavated -= len(lineSegments)
 	return totalExcavated
 }
 
-// vertical lines have to appear in pairs, if not, we messed up
-func generateHorizontalDistances(activeVerticals []LineSegment) []Pair {
-	horizontalDistances := []Pair{}
-	for i := 1; i < len(activeVerticals); i += 2 {
-		horizontalDistances = append(horizontalDistances, Pair{activeVerticals[i-1].StartPoint.J, activeVerticals[i].StartPoint.J})
-	}
-	return horizontalDistances
+type VerticalLine struct {
+	A           int // the smaller I coordinate of the vertical line
+	AHDelta     int // the the offset the horizontal line attached point A would offset the Axis of the vertical line if we followed it (positive means horizontal goes right)
+	B           int
+	BHDelta     int
+	Axis        int  // the J coordinate of the vertical line
+	Terminating bool // whether or not the vertical line terminates the shapes enclosed section
 }
 
-// A bit tricky. We use the current distances as a mask and combine all ranges
-// covered by it from next distances.  
-func mergeSumDistances(currentDistances []Pair, nextDistances []Pair) int {
-	combined := currentDistances
-	combined = append(combined, nextDistances...)
+func LineSegmentsToVerticalLines(lineSegments []LineSegment) []VerticalLine {
+	verticalLines := []VerticalLine{}
 
-	sort.Slice(combined, func(i, j int) bool {
-		return combined[i].I < combined[j].I
-	})
-
-	merged := []Pair{}
-	for i := 0; i < len(combined); {
-		merged = append(merged, combined[i])
-		last := len(merged) - 1
-		j := i + 1
-		for ; j < len(combined); j++ {
-			if (merged[last].I <= combined[j].I && combined[j].I <= merged[last].J) || (merged[last].I <= combined[j].J && combined[j].J <= merged[last].J) {
-				if merged[last].J < combined[j].J {
-					merged[last].J = combined[j].J
-				}
-				continue
-			}
-			break
+	for i := range lineSegments {
+		// skip horizontals
+		if lineSegments[i].StartPoint.J != lineSegments[i].LastPoint.J {
+			continue
 		}
-		i = j
-	}
-	fmt.Println(merged)
-	return sumDistances(merged)
-}
+		axis := lineSegments[i].StartPoint.J
+		a := lineSegments[i].StartPoint.I
+		b := lineSegments[i].LastPoint.I
 
-func sumDistances(distances []Pair) int {
-	sum := 0
-	for _, distance := range distances {
-		sum += 1 + distance.J - distance.I
-	}
-	return sum
-}
-
-func updateActiveVerticals(verticalSegments []LineSegment, i, scanHeight int, activeVerticals []LineSegment) ([]LineSegment, int) {
-	nextActives := []LineSegment{}
-	for ; i < len(verticalSegments); i++ {
-		if verticalSegments[i].StartPoint.I > scanHeight {
-			break
+		hIndexOne := i + 1
+		if hIndexOne == len(lineSegments) {
+			hIndexOne = 0
 		}
-		nextActives = append(nextActives, verticalSegments[i])
-	}
-	for _, activeSegment := range activeVerticals {
-		if activeSegment.LastPoint.I > scanHeight {
-			nextActives = append(nextActives, activeSegment)
+		hDeltaOne := lineSegments[hIndexOne].Length() - 1
+		if lineSegments[hIndexOne].StartPoint.J < axis || lineSegments[hIndexOne].LastPoint.J < axis {
+			hDeltaOne *= -1
 		}
+
+		hIndexTwo := i - 1
+		if hIndexTwo < 0 {
+			hIndexTwo = len(lineSegments) - 1
+		}
+		hDeltaTwo := lineSegments[hIndexTwo].Length() - 1
+		if lineSegments[hIndexTwo].StartPoint.J < axis || lineSegments[hIndexTwo].LastPoint.J < axis {
+			hDeltaTwo *= -1
+		}
+
+		aHDelta := hDeltaOne
+		bHDelta := hDeltaTwo
+		// if horizontal doesn't match the start point of our vertical then we swap the hDeltas
+		if lineSegments[i].StartPoint != lineSegments[hIndexOne].StartPoint && lineSegments[i].LastPoint != lineSegments[hIndexOne].LastPoint {
+			aHDelta, bHDelta = bHDelta, aHDelta
+		}
+
+		if a > b {
+			// reorder data so a -> b is always increasing
+			a, aHDelta, b, bHDelta = b, bHDelta, a, aHDelta
+		}
+		verticalLines = append(verticalLines, VerticalLine{a, aHDelta, b, bHDelta, axis, false})
 	}
 
-	sort.Slice(nextActives, func(lhs, rhs int) bool {
-		return nextActives[lhs].StartPoint.J < nextActives[rhs].StartPoint.J
-	})
-	return nextActives, i
-}
-
-func findNextChangeHeight(activeVerticals []LineSegment, previousHeight int) int {
-	closest := activeVerticals[0].LastPoint.I
-	for i := 1; i < len(activeVerticals); i++ {
-		if closest-previousHeight > activeVerticals[i].LastPoint.I-previousHeight {
-			closest = activeVerticals[i].LastPoint.I
-		}
-	}
-	return closest
+	return verticalLines
 }
 
 func Abs(val int) int {
@@ -453,6 +425,10 @@ func Abs(val int) int {
 	return val
 }
 
+// Total runtime with compilation and running part one and two together
+// real    0m0.892s
+// user    0m0.891s
+// sys     0m0.066s
 func main() {
 	scanner := bufio.NewScanner(os.Stdin)
 	lines := []string{}
@@ -465,6 +441,7 @@ func main() {
 
 	fmt.Println("Part one")
 	fmt.Printf("Total cubic meters excavated: %v\n", PartOne(data))
+	// Solution: 52240187443190
 	fmt.Println("Part two")
 	fmt.Printf("Total cubic meters excavated using colors for instructions: %v\n", PartTwo(data))
 }
