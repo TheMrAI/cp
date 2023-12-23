@@ -48,23 +48,23 @@ func PartOne(matrix [][]byte, stepCount int) int {
 				nextReachablePlots[nextCoord] = struct{}{}
 			}
 		}
+		fmt.Printf("Step %v - covered %v , prev covered: %v delta: %v\n", i+1, len(nextReachablePlots), len(reachablePlots), len(nextReachablePlots)-len(reachablePlots))
 		reachablePlots = nextReachablePlots
 
-		fmt.Printf("Step %v - covered %v\n", i+1, len(reachablePlots))
+		// fmt.Printf("Step %v - covered %v\n", i+1, len(reachablePlots))
 		for l := range matrix {
-			fmt.Printf("%3.v : ", l)
+			// fmt.Printf("%3.v : ", l)
 			for m := range matrix[0] {
 				_, ok := reachablePlots[Pair{l, m}]
 				if ok {
-					fmt.Print("O ")
+					// fmt.Print("O ")
 					continue
 				}
 				// fmt.Printf("%c ", matrix[l][m])
-				fmt.Print("  ")
 			}
-			fmt.Println()
+			// fmt.Println()
 		}
-		fmt.Println()
+		// fmt.Println()
 	}
 
 	return len(reachablePlots)
@@ -79,12 +79,12 @@ func main() {
 	}
 
 	matrix := ParseInput(lines)
-	for _, l := range matrix {
-		for _, c := range l {
-			fmt.Printf("%c ", c)
-		}
-		fmt.Println()
-	}
+	// for _, l := range matrix {
+	// 	for _, c := range l {
+	// 		fmt.Printf("%c ", c)
+	// 	}
+	// 	fmt.Println()
+	// }
 
 	fmt.Println("Part one")
 	fmt.Printf("The number of reachable garden spots in 64 steps: %v\n", PartOne(matrix, 64))
