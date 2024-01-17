@@ -59,7 +59,7 @@ func ParseInput(packetStr string) Packet {
 	bytes := HexStringToBinary(packetStr)
 	bytesRead, packet, err := ParsePacket(bytes, 0)
 	if err != nil {
-		log.Fatalf("Failed to parse packets after %v bytes, with error \n\t%v", bytesRead, err)
+		log.Fatalf("Failed to parse packets after %v bit(s), with error \n\t%v", bytesRead, err)
 	}
 	return packet
 }
@@ -67,13 +67,13 @@ func ParseInput(packetStr string) Packet {
 func ParsePacket(bytes []byte, index int) (int, Packet, error) {
 	version, err := strconv.ParseUint(string(bytes[index:index+3]), 2, 8)
 	if err != nil {
-		return index, Packet{}, fmt.Errorf("Failed to parse version starting at index: %v", index)
+		return index, Packet{}, fmt.Errorf("version parse failure")
 	}
 	index += 3
 
 	packetType, err := strconv.ParseUint(string(bytes[index:index+3]), 2, 8)
 	if err != nil {
-		return index, Packet{}, fmt.Errorf("Failed to parse packetType starting at index: %v", index)
+		return index, Packet{}, fmt.Errorf("packetType parse failure")
 	}
 	index += 3
 
@@ -92,18 +92,14 @@ func ParsePacket(bytes []byte, index int) (int, Packet, error) {
 			subPacketBitLength, err := strconv.ParseUint(string(bytes[index:index+15]), 2, 64)
 			index += 15
 			if err != nil {
-				return index, packet, err
+				return index, packet, fmt.Errorf("sub packet length parse failure")
 			}
 			end := index + int(subPacketBitLength)
 			for index < end {
-				prevIndex := index
 				nextIndex, subPacket, err := ParsePacket(bytes, index)
 				index = nextIndex
 				if err != nil {
-					return index, packet, err
-				}
-				if prevIndex == index {
-					break
+					return index, packet, fmt.Errorf("packet parse failure")
 				}
 				packet.subPackets = append(packet.subPackets, subPacket)
 			}
@@ -111,13 +107,14 @@ func ParsePacket(bytes []byte, index int) (int, Packet, error) {
 		} else {
 			subPacketCount, err := strconv.ParseUint(string(bytes[index:index+11]), 2, 64)
 			index += 11
+
 			if err != nil {
-				return index, packet, err
+				return index, packet, fmt.Errorf("sub packet count parse failure")
 			}
 			for count := 0; count < int(subPacketCount); count++ {
 				nextIndex, subPacket, err := ParsePacket(bytes, index)
 				if err != nil {
-					return nextIndex, packet, err
+					return nextIndex, packet, fmt.Errorf("packet parse failure")
 				}
 				packet.subPackets = append(packet.subPackets, subPacket)
 				index = nextIndex
@@ -129,13 +126,14 @@ func ParsePacket(bytes []byte, index int) (int, Packet, error) {
 
 func ParseLiteral(bytes []byte, index int) (int, uint64, error) {
 	numberSequence := []byte{}
-	for ; index < len(bytes)-5; index += 5 {
+	for ; index <= len(bytes)-5; index += 5 {
 		numberSequence = append(numberSequence, bytes[index+1:index+5]...)
 		if bytes[index] == '0' {
 			index += 5
 			break
 		}
 	}
+
 	value, err := strconv.ParseUint(string(numberSequence), 2, 64)
 	if err != nil {
 		return index, value, err
@@ -155,6 +153,79 @@ func sumAllVersionNumbers(packet Packet) int {
 	return versionNumberSum + int(packet.version)
 }
 
+func PartTwo(packet Packet) uint64 {
+	return evaluate(packet)
+}
+
+func evaluate(packet Packet) uint64 {
+	switch packet.packetType {
+	case 0:
+		{
+			sum := evaluate(packet.subPackets[0])
+			for i := 1; i < len(packet.subPackets); i++ {
+				sum += evaluate(packet.subPackets[i])
+			}
+			return sum
+		}
+	case 1:
+		{
+			sum := evaluate(packet.subPackets[0])
+			for i := 1; i < len(packet.subPackets); i++ {
+				sum *= evaluate(packet.subPackets[i])
+			}
+			return sum
+		}
+	case 2:
+		{
+			minimum := evaluate(packet.subPackets[0])
+			for i := 1; i < len(packet.subPackets); i++ {
+				val := evaluate(packet.subPackets[i])
+				if val < minimum {
+					minimum = val
+				}
+			}
+			return minimum
+		}
+	case 3:
+		{
+			maximum := evaluate(packet.subPackets[0])
+			for i := 1; i < len(packet.subPackets); i++ {
+				val := evaluate(packet.subPackets[i])
+				if val > maximum {
+					maximum = val
+				}
+			}
+			return maximum
+		}
+	case 4:
+		{
+			return packet.value
+		}
+	case 5:
+		{
+			if evaluate(packet.subPackets[0]) > evaluate(packet.subPackets[1]) {
+				return 1
+			}
+			return 0
+		}
+	case 6:
+		{
+			if evaluate(packet.subPackets[0]) < evaluate(packet.subPackets[1]) {
+				return 1
+			}
+			return 0
+		}
+	case 7:
+		{
+			if evaluate(packet.subPackets[0]) == evaluate(packet.subPackets[1]) {
+				return 1
+			}
+			return 0
+		}
+	}
+	return 0
+}
+
 func main() {
 	scanner := bufio.NewScanner(os.Stdin)
 	lines := []string{}
@@ -167,5 +238,7 @@ func main() {
 		packet := ParseInput(lines[i])
 		fmt.Println("Part one")
 		fmt.Printf("Sum of all version numbers in the packet: %v\n", PartOne(packet))
+		fmt.Println("Part two")
+		fmt.Printf("Value of the packet: %v\n", PartTwo(packet))
 	}
 }
