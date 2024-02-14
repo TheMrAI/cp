@@ -5,7 +5,7 @@ using namespace std;
 using i6 = int64_t;
 
 template<typename Output, typename Iter>
-requires std::derived_from<Output, std::ostream> && std::weakly_incrementable<Iter> && std::indirectly_readable<Iter>
+  requires std::derived_from<Output, std::ostream> && std::weakly_incrementable<Iter> && std::indirectly_readable<Iter>
 auto dump_to(Output& output, Iter begin, Iter end)
 {
   while (begin != end) {
@@ -17,7 +17,7 @@ auto dump_to(Output& output, Iter begin, Iter end)
 
 // Source: https://codeforces.com/blog/entry/78852
 template<typename T>
-requires std::integral<T>
+  requires std::integral<T>
 auto ceil2(T a, T b) -> T
 {
   if (a == 0) return 0;
@@ -70,7 +70,7 @@ auto encodeGraphNodes(std::unordered_map<std::string, Valve> const& inputGraph) 
   }
   ranges::sort(nodeIds);
   auto encoding = std::unordered_map<std::string, int>{};
-  for (auto i = 0; i < nodeIds.size(); ++i) { encoding[nodeIds[i]] = i; }
+  for (auto i = std::size_t{ 0 }; i < nodeIds.size(); ++i) { encoding[nodeIds[i]] = i; }
   return encoding;
 }
 
@@ -89,7 +89,7 @@ auto toStandardEdgeMap(std::unordered_map<std::string, Valve> const inputGraph,
     auto node = Node{};
     node.flowRate = entry.second.flowRate;
     for (auto const& neighbor : entry.second.tunnels) { node.edges.insert({ encoding.at(neighbor), 1 }); }
-    std::swap(edgeMap[nodeId], node);
+    edgeMap[nodeId] = node;
   }
 
   return edgeMap;
@@ -108,9 +108,9 @@ auto floydWarshall(std::unordered_map<int, Node> const edgeMap) -> std::vector<s
     }
   }
 
-  for (auto k = 0; k < edgeMap.size(); ++k) {
-    for (auto i = 0; i < edgeMap.size(); ++i) {
-      for (auto j = 0; j < edgeMap.size(); ++j) {
+  for (auto k = std::size_t{ 0 }; k < edgeMap.size(); ++k) {
+    for (auto i = std::size_t{ 0 }; i < edgeMap.size(); ++i) {
+      for (auto j = std::size_t{ 0 }; j < edgeMap.size(); ++j) {
         if (distanceMatrix[i][k] == INF || distanceMatrix[k][j] == INF) { continue; }
         distanceMatrix[i][j] = std::min(distanceMatrix[i][j], distanceMatrix[i][k] + distanceMatrix[k][j]);
       }
@@ -157,10 +157,13 @@ auto dfs(std::unordered_map<int, Node> const& edgeMap,
   int nodeId,
   int remainingTime,
   int perMinuteRelease,
-  uint seen,
-  uint const& allSeenMask) -> int
+  // we are cheating here and squeezing the visited into a 64 bit wide unsigned, because we know there are at most only
+  // 54 nodes to manage, otherwise this wouldn't work!
+  uint64_t seen) -> int
 {
-  if (remainingTime <= 1 || seen == allSeenMask) { return perMinuteRelease * remainingTime; }
+  if (remainingTime <= 1 || static_cast<std::size_t>(std::popcount(seen)) == edgeMap.size()) {
+    return perMinuteRelease * remainingTime;
+  }
 
   auto released = 0;
   // open current valve if it is worth opening
@@ -170,17 +173,16 @@ auto dfs(std::unordered_map<int, Node> const& edgeMap,
     perMinuteRelease += edgeMap.at(nodeId).flowRate;
   }
   // mark node as seen
-  seen |= (1u << nodeId);
+  seen |= (uint64_t{ 1 } << nodeId);
 
   auto maximumThatCanBeReleased = perMinuteRelease * remainingTime;
   for (auto const& targetNode : edgeMap.at(nodeId).edges) {
-    auto targetNodeVisited = (seen & (1u << targetNode.first)) != 0;
+    auto targetNodeVisited = (seen & (uint64_t{ 1 } << targetNode.first)) != 0;
     if (targetNodeVisited) { continue; }
     auto travelTime = targetNode.second;
     auto releasedWhileTraversing = travelTime * perMinuteRelease;
     maximumThatCanBeReleased = std::max(maximumThatCanBeReleased,
-      releasedWhileTraversing
-        + dfs(edgeMap, targetNode.first, remainingTime - travelTime, perMinuteRelease, seen, allSeenMask));
+      releasedWhileTraversing + dfs(edgeMap, targetNode.first, remainingTime - travelTime, perMinuteRelease, seen));
   }
   return released + maximumThatCanBeReleased;
 }
@@ -199,29 +201,26 @@ auto dfs_second_part(std::unordered_map<int, Node> const& edgeMap,
   int currentTime,
   int endTime,
   int perMinuteRelease,
-  uint seen,
-  uint const& allSeenMask) -> int
+  uint64_t seen) -> int
 {
   auto releasedWhileStepping = perMinuteRelease * simulationStep;
   // all node seen or no time left
-  if (currentTime == endTime || seen == allSeenMask) {
-    // std::cout << "Current: " << currentTime << ", perMinute: " << perMinuteRelease << " seen: " <<
-    // std::format("{:b}", seen) << std::endl;
+  if (currentTime == endTime || static_cast<std::size_t>(std::popcount(seen)) == edgeMap.size()) {
     return releasedWhileStepping;
   }
 
   auto userTargets = std::vector<std::pair<int, int>>{};
   userTargets.emplace_back(user.targetNodeId, user.arrivalTime);
   if (user.arrivalTime == currentTime) {
-    auto userNodeSeen = (seen & (1u << user.targetNodeId)) != 0;
+    auto userNodeSeen = (seen & (uint64_t{ 1 } << user.targetNodeId)) != 0;
     if (!userNodeSeen) {
-      seen |= (1u << user.targetNodeId);
+      seen |= (uint64_t{ 1 } << user.targetNodeId);
       userTargets.emplace_back(user.targetNodeId, currentTime + 1);
       perMinuteRelease += edgeMap.at(user.targetNodeId).flowRate;
     } else {
       // collect candidates
       for (auto const& userCandidate : edgeMap.at(user.targetNodeId).edges) {
-        auto candidateSeen = (seen & (1u << userCandidate.first)) != 0;
+        auto candidateSeen = (seen & (uint64_t{ 1 } << userCandidate.first)) != 0;
         if (candidateSeen || userCandidate.first == elephant.targetNodeId) { continue; }
         userTargets.emplace_back(userCandidate.first, currentTime + userCandidate.second);
       }
@@ -231,15 +230,15 @@ auto dfs_second_part(std::unordered_map<int, Node> const& edgeMap,
   auto elephantTargets = std::vector<std::pair<int, int>>{};
   elephantTargets.emplace_back(elephant.targetNodeId, elephant.arrivalTime);
   if (elephant.arrivalTime == currentTime) {
-    auto elephantNodeSeen = (seen & (1u << elephant.targetNodeId)) != 0;
+    auto elephantNodeSeen = (seen & (uint64_t{ 1 } << elephant.targetNodeId)) != 0;
     if (!elephantNodeSeen) {
-      seen |= (1u << elephant.targetNodeId);
+      seen |= (uint64_t{ 1 } << elephant.targetNodeId);
       elephantTargets.emplace_back(elephant.targetNodeId, currentTime + 1);
       perMinuteRelease += edgeMap.at(elephant.targetNodeId).flowRate;
     } else {
       // collect candidates
       for (auto const& elephantCandidate : edgeMap.at(elephant.targetNodeId).edges) {
-        auto candidateSeen = (seen & (1u << elephantCandidate.first)) != 0;
+        auto candidateSeen = (seen & (uint64_t{ 1 } << elephantCandidate.first)) != 0;
         if (candidateSeen || elephantCandidate.first == user.targetNodeId) { continue; }
         elephantTargets.emplace_back(elephantCandidate.first, currentTime + elephantCandidate.second);
       }
@@ -262,8 +261,7 @@ auto dfs_second_part(std::unordered_map<int, Node> const& edgeMap,
           currentTime + travelTime,
           endTime,
           perMinuteRelease,
-          seen,
-          allSeenMask));
+          seen));
     }
   }
 
@@ -280,28 +278,12 @@ auto main() -> int
   auto originalEdgeMap = toStandardEdgeMap(originalGraph, nodeEncoding);
   auto edgeMap = compressEdgeMap(originalEdgeMap);
 
-  auto allSeenMask = 0u;
-  for (auto const& node : edgeMap) {
-    allSeenMask |= 1u << node.first;
-    std::cout << "Node: " << node.first << " with flow rate: " << node.second.flowRate << std::endl;
-    for (auto const& n : node.second.edges) { std::cout << '\t' << n.first << " in: " << n.second << std::endl; }
-  }
-
-  auto totalReleased = dfs(edgeMap, 0, 30, 0, 0u, allSeenMask);
+  auto totalReleased = dfs(edgeMap, 0, 30, 0, uint64_t{ 0 });
   std::cout << "Total pressure released: " << totalReleased << std::endl;
-
-  auto testMap =
-    std::unordered_map<int, Node>{ { 0, Node{ 0, std::unordered_map<int, int>{ { 1, 1 }, { 2, 2 }, { 3, 1 } } } },
-      { 1, Node{ 13, std::unordered_map<int, int>{ { 0, 1 }, { 2, 1 }, { 3, 2 } } } },
-      { 2, Node{ 2, std::unordered_map<int, int>{ { 0, 2 }, { 1, 1 }, { 3, 1 } } } },
-      { 3, Node{ 20, std::unordered_map<int, int>{ { 0, 1 }, { 2, 1 }, { 1, 2 } } } } };
-
-  std::cout << edgeMap.size() << std::endl;
-  // for (auto i = 1; i <= 13; ++i) {
+  // 2595 too low
   auto totalReleasedWithElephantBro =
-    dfs_second_part(edgeMap, Agent{ 0, 1 }, Agent{ 0, 1 }, 0, 1, 26, 0, 1u, allSeenMask);
+    dfs_second_part(edgeMap, Agent{ 0, 1 }, Agent{ 0, 1 }, 0, 1, 26, 0, uint64_t{ 1 });
   std::cout << "Total pressure release with elephant companion: " << totalReleasedWithElephantBro << std::endl;
-  // }
 
   return 0;
 }
