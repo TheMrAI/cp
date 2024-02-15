@@ -153,41 +153,126 @@ auto compressEdgeMap(std::unordered_map<int, Node> const& edgeMap) -> std::unord
   return compressedEdgeMap;
 }
 
+// find all optimal paths for one agent
+// The trick we are gonna employ here is that we merge, the travel and valve release
+// times into one range of time. This way we don't have to worry about how to handle
+// the cases where one agent has arrived somewhere but hasn't opened the valve yet.
 auto dfs(std::unordered_map<int, Node> const& edgeMap,
   int nodeId,
-  int remainingTime,
+  int arrivalTime,
+  int simulationStep,
+  int currentTime,
+  int endTime,
   int perMinuteRelease,
+  int releasedSoFar,
   // we are cheating here and squeezing the visited into a 64 bit wide unsigned, because we know there are at most only
   // 54 nodes to manage, otherwise this wouldn't work!
-  uint64_t seen) -> int
+  uint64_t seen,
+  std::unordered_map<uint64_t, int>& bestPaths) -> void
 {
-  if (remainingTime <= 1 || static_cast<std::size_t>(std::popcount(seen)) == edgeMap.size()) {
-    return perMinuteRelease * remainingTime;
-  }
-
-  auto released = 0;
-  // open current valve if it is worth opening
-  if (edgeMap.at(nodeId).flowRate != 0) {
-    --remainingTime;
-    released = perMinuteRelease;
+  auto releasedWhileStepping = perMinuteRelease * simulationStep;
+  releasedSoFar += releasedWhileStepping;
+  auto remainingSteps = endTime - currentTime;
+  // always open the valves the agent has arrived at
+  // at the start node the flow rate may be zero and we skip that
+  if (arrivalTime == currentTime && edgeMap.at(nodeId).flowRate != 0) {
+    seen |= (uint64_t{ 1 } << nodeId);
     perMinuteRelease += edgeMap.at(nodeId).flowRate;
   }
-  // mark node as seen
-  seen |= (uint64_t{ 1 } << nodeId);
+  // if didn't move any more, this would be the additionally max released pressure
+  auto additionalReleasedPressure = perMinuteRelease * remainingSteps;
+  // insert/update best release for seen path, if we didn't make any more moves
+  bestPaths[seen] = std::max(bestPaths[seen], releasedSoFar + additionalReleasedPressure);
 
-  auto maximumThatCanBeReleased = perMinuteRelease * remainingTime;
-  for (auto const& targetNode : edgeMap.at(nodeId).edges) {
-    auto targetNodeVisited = (seen & (uint64_t{ 1 } << targetNode.first)) != 0;
-    if (targetNodeVisited) { continue; }
-    auto travelTime = targetNode.second;
-    auto releasedWhileTraversing = travelTime * perMinuteRelease;
-    maximumThatCanBeReleased = std::max(maximumThatCanBeReleased,
-      releasedWhileTraversing + dfs(edgeMap, targetNode.first, remainingTime - travelTime, perMinuteRelease, seen));
+  // all node seen or no time left
+  if (currentTime == endTime || static_cast<std::size_t>(std::popcount(seen)) == edgeMap.size()) { return; }
+
+  // pick a node and go boiii
+  for (auto const& entry : edgeMap.at(nodeId).edges) {
+    auto nodeSeen = (seen & (uint64_t{ 1 } << entry.first)) != 0;
+    if (nodeSeen) { continue; }
+    auto stepCount = entry.second + 1;// travel time + valve opening time
+    simulationStep = std::min({ stepCount, remainingSteps });
+    dfs(edgeMap,
+      entry.first,
+      stepCount + currentTime,
+      simulationStep,
+      simulationStep + currentTime,
+      endTime,
+      perMinuteRelease,
+      releasedSoFar,
+      seen,
+      bestPaths);
   }
-  return released + maximumThatCanBeReleased;
 }
 
-// curiously we don't even have to know where the agent actually is, only where they are going and when they arrive
+// Part two
+// After reading a few ideas, I have found one that I have liked.
+// Here it is how it goes: To find an optimal path we have to essentially DFS the whole graph and collect what is the
+// best score we can get. This means that we inevitably have to check all paths either way. If we identify a path
+// through the graph using the bitmask of the visited nodes, we can collect the maximum releasable pressure for each
+// such path, into a map. Additionally after every visited and valve opened node we have to store the case where the
+// agent decided not to search any more. This way we generate all the possible combinations and for each we can
+// store the best possible route for a single agent.
+// Then, we observe that for a disjoint path pair, we can simply add their best scores together and find the optimal
+// result for two agents. This is due to the nature of the data we have collected. If two paths are disjoint, and they
+// are optimal for a given period of time, we should just be able to add them together.
+// Find the biggest such pair and we are done.
+
+// Total running time for part one and two together:
+// real    0m0.105s
+// user    0m0.095s
+// sys     0m0.010s
+// Not gonna lie, I am impressed. Given how complex the problem is, it seems solving it may not be that expensive.
+// Initially I didn't even want to consider these path collection approaches as there would be nodeCount! paths to
+// check. However, it seems that most of those paths get pruned away and even on the big input we would only have a
+// total
+// of only 9903 paths to check, which is a very small amount.
+auto main() -> int
+{
+  ios::sync_with_stdio(false);
+  cin.tie(nullptr);
+
+  auto originalGraph = parseGraph();
+  auto nodeEncoding = encodeGraphNodes(originalGraph);
+  auto originalEdgeMap = toStandardEdgeMap(originalGraph, nodeEncoding);
+  auto edgeMap = compressEdgeMap(originalEdgeMap);
+
+  std::cout << "Total number of non-zero valves: " << edgeMap.size() - 1 << std::endl;
+
+  // do not mark the first node as visited, or part two won't be able to find disjoint paths
+  auto bestReleaseForPaths = std::unordered_map<uint64_t, int>{};
+  dfs(edgeMap, 0, 0, 0, 0, 30, 0, 0, uint64_t{ 0 }, bestReleaseForPaths);
+  std::cout << "Total number of optimal paths: " << bestReleaseForPaths.size() << std::endl;
+  auto optimalReleaseForOneAgent = bestReleaseForPaths.begin()->second;
+  for (auto const& entry : bestReleaseForPaths) {
+    optimalReleaseForOneAgent = std::max(optimalReleaseForOneAgent, entry.second);
+  }
+  std::cout << "Total pressure released: " << optimalReleaseForOneAgent << std::endl;
+  // 2595 too low
+  // 2715 not good
+  auto bestReleaseForPathsTwoAgents = std::unordered_map<uint64_t, int>{};
+  dfs(edgeMap, 0, 0, 0, 0, 26, 0, 0, uint64_t{ 0 }, bestReleaseForPathsTwoAgents);
+  auto bestFlowForTwoAgents = 0;
+  for (auto const& agentOne : bestReleaseForPathsTwoAgents) {
+    for (auto const& agentTwo : bestReleaseForPathsTwoAgents) {
+      if ((agentOne.first & agentTwo.first) != 0) { continue; }
+      bestFlowForTwoAgents = std::max(bestFlowForTwoAgents, agentOne.second + agentTwo.second);
+    }
+  }
+  // auto totalReleasedWithElephantBro =
+  //   dfs_second_part(edgeMap, Agent{ 0, 0 }, Agent{ 0, 0 }, 0, 0, 30, 0, uint64_t{ 1 });
+  std::cout << "Total pressure release with elephant companion: " << bestFlowForTwoAgents << std::endl;
+
+  return 0;
+}
+
+
+// My 3rd attempt to implement simultaneous simulation. Doesn't work, though...
+// Something is missing that I just can't see.
+// The trick we are gonna employ here is that we merge, the travel and valve release
+// times into one range of time. This way we don't have to worry about how to handle
+// the cases where one agent has arrived somewhere but hasn't opened the valve yet.
 struct Agent
 {
   int targetNodeId;
@@ -204,86 +289,89 @@ auto dfs_second_part(std::unordered_map<int, Node> const& edgeMap,
   uint64_t seen) -> int
 {
   auto releasedWhileStepping = perMinuteRelease * simulationStep;
+  auto remainingSteps = endTime - currentTime;
+
+  // always open the valves the agent has arrived at
+  // , if it isn't already open (the opening time has been calculated into the travel time)
+  if (user.arrivalTime == currentTime && !((seen & (uint64_t{ 1 } << user.targetNodeId)) != 0)) {
+    seen |= (uint64_t{ 1 } << user.targetNodeId);
+    perMinuteRelease += edgeMap.at(user.targetNodeId).flowRate;
+  }
+  if (elephant.arrivalTime == currentTime && !((seen & (uint64_t{ 1 } << elephant.targetNodeId)) != 0)) {
+    seen |= (uint64_t{ 1 } << elephant.targetNodeId);
+    perMinuteRelease += edgeMap.at(elephant.targetNodeId).flowRate;
+  }
+  // if nobody moved this round, this would be the additionally max releasable pressure
+  auto additionalMaxReleasablePressure = perMinuteRelease * remainingSteps;
+
   // all node seen or no time left
   if (currentTime == endTime || static_cast<std::size_t>(std::popcount(seen)) == edgeMap.size()) {
-    return releasedWhileStepping;
+    return releasedWhileStepping + additionalMaxReleasablePressure;
   }
 
-  auto userTargets = std::vector<std::pair<int, int>>{};
-  userTargets.emplace_back(user.targetNodeId, user.arrivalTime);
-  if (user.arrivalTime == currentTime) {
-    auto userNodeSeen = (seen & (uint64_t{ 1 } << user.targetNodeId)) != 0;
-    if (!userNodeSeen) {
-      seen |= (uint64_t{ 1 } << user.targetNodeId);
-      userTargets.emplace_back(user.targetNodeId, currentTime + 1);
-      perMinuteRelease += edgeMap.at(user.targetNodeId).flowRate;
-    } else {
-      // collect candidates
-      for (auto const& userCandidate : edgeMap.at(user.targetNodeId).edges) {
-        auto candidateSeen = (seen & (uint64_t{ 1 } << userCandidate.first)) != 0;
-        if (candidateSeen || userCandidate.first == elephant.targetNodeId) { continue; }
-        userTargets.emplace_back(userCandidate.first, currentTime + userCandidate.second);
-      }
-    }
-  }
-
-  auto elephantTargets = std::vector<std::pair<int, int>>{};
-  elephantTargets.emplace_back(elephant.targetNodeId, elephant.arrivalTime);
-  if (elephant.arrivalTime == currentTime) {
-    auto elephantNodeSeen = (seen & (uint64_t{ 1 } << elephant.targetNodeId)) != 0;
-    if (!elephantNodeSeen) {
-      seen |= (uint64_t{ 1 } << elephant.targetNodeId);
-      elephantTargets.emplace_back(elephant.targetNodeId, currentTime + 1);
-      perMinuteRelease += edgeMap.at(elephant.targetNodeId).flowRate;
-    } else {
-      // collect candidates
-      for (auto const& elephantCandidate : edgeMap.at(elephant.targetNodeId).edges) {
-        auto candidateSeen = (seen & (uint64_t{ 1 } << elephantCandidate.first)) != 0;
-        if (candidateSeen || elephantCandidate.first == user.targetNodeId) { continue; }
-        elephantTargets.emplace_back(elephantCandidate.first, currentTime + elephantCandidate.second);
-      }
-    }
-  }
-
-  auto additionalMaxReleasablePressure = 0;
-  for (auto const& userCandidate : userTargets) {
-    for (auto const& elephantCandidate : elephantTargets) {
-      auto userTargetArrivalTime =
-        currentTime >= userCandidate.second ? endTime : std::min(userCandidate.second, endTime);
-      auto elephantTargetArrivalTime =
-        currentTime >= elephantCandidate.second ? endTime : std::min(elephantCandidate.second, endTime);
-      auto travelTime = std::min(userTargetArrivalTime, elephantTargetArrivalTime) - currentTime;
+  // only user steps, if it can
+  if (user.arrivalTime <= currentTime) {
+    for (auto const& forUser : edgeMap.at(user.targetNodeId).edges) {
+      auto userSeen = (seen & (uint64_t{ 1 } << forUser.first)) != 0;
+      if (userSeen) { continue; }
+      auto userStep = forUser.second + 1;// travel time + valve opening time
+      auto elephantStep = std::max(elephant.arrivalTime - currentTime, remainingSteps);
+      simulationStep = std::min({ userStep, elephantStep, remainingSteps });
       additionalMaxReleasablePressure = std::max(additionalMaxReleasablePressure,
         dfs_second_part(edgeMap,
-          Agent{ userCandidate.first, userCandidate.second },
-          Agent{ elephantCandidate.first, elephantCandidate.second },
-          travelTime,
-          currentTime + travelTime,
+          Agent{ forUser.first, userStep + currentTime },
+          elephant,
+          simulationStep,
+          currentTime + simulationStep,
           endTime,
           perMinuteRelease,
           seen));
     }
   }
+  // only elephant steps, if it can
+  if (elephant.arrivalTime <= currentTime) {
+    for (auto const& forElephant : edgeMap.at(elephant.targetNodeId).edges) {
+      auto elephantSeen = (seen & (uint64_t{ 1 } << forElephant.first)) != 0;
+      if (elephantSeen) { continue; }
+      auto elephantStep = forElephant.second + 1;// travel time + opening time
+      auto userStep = std::max(user.arrivalTime - currentTime, remainingSteps);
+      simulationStep = std::min({ userStep, elephantStep, remainingSteps });
+      additionalMaxReleasablePressure = std::max(additionalMaxReleasablePressure,
+        dfs_second_part(edgeMap,
+          user,
+          Agent{ forElephant.first, elephantStep + currentTime },
+          simulationStep,
+          currentTime + simulationStep,
+          endTime,
+          perMinuteRelease,
+          seen));
+    }
+  }
+  // both try to step
+  if (user.arrivalTime <= currentTime && elephant.arrivalTime <= currentTime
+      && (edgeMap.size() - static_cast<std::size_t>(std::popcount(seen)) >= 2)) {
+    // choose targets
+    for (auto const& forUser : edgeMap.at(user.targetNodeId).edges) {
+      auto userSeen = (seen & (uint64_t{ 1 } << forUser.first)) != 0;
+      if (userSeen) { continue; }
+      auto userStep = forUser.second + 1;
+      for (auto const& forElephant : edgeMap.at(elephant.targetNodeId).edges) {
+        auto elephantSeen = (seen & (uint64_t{ 1 } << forElephant.first)) != 0;
+        if (forUser.first == forElephant.first || elephantSeen) { continue; }
+        auto elephantStep = forElephant.second + 1;
+        simulationStep = std::min({ userStep, elephantStep, remainingSteps });
+        additionalMaxReleasablePressure = std::max(additionalMaxReleasablePressure,
+          dfs_second_part(edgeMap,
+            Agent{ forUser.first, userStep + currentTime },
+            Agent{ forElephant.first, elephantStep + currentTime },
+            simulationStep,
+            currentTime + simulationStep,
+            endTime,
+            perMinuteRelease,
+            seen));
+      }
+    }
+  }
 
   return releasedWhileStepping + additionalMaxReleasablePressure;
-}
-
-auto main() -> int
-{
-  ios::sync_with_stdio(false);
-  cin.tie(nullptr);
-
-  auto originalGraph = parseGraph();
-  auto nodeEncoding = encodeGraphNodes(originalGraph);
-  auto originalEdgeMap = toStandardEdgeMap(originalGraph, nodeEncoding);
-  auto edgeMap = compressEdgeMap(originalEdgeMap);
-
-  auto totalReleased = dfs(edgeMap, 0, 30, 0, uint64_t{ 0 });
-  std::cout << "Total pressure released: " << totalReleased << std::endl;
-  // 2595 too low
-  auto totalReleasedWithElephantBro =
-    dfs_second_part(edgeMap, Agent{ 0, 1 }, Agent{ 0, 1 }, 0, 1, 26, 0, uint64_t{ 1 });
-  std::cout << "Total pressure release with elephant companion: " << totalReleasedWithElephantBro << std::endl;
-
-  return 0;
 }
