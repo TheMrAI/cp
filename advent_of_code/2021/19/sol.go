@@ -54,7 +54,6 @@ func parseScanner(lines []string, from int) (Scanner, int) {
 	coordinatesRegexp := regexp.MustCompile(`(-?\d+),(-?\d+),(-?\d+)`)
 
 	scannerIdText := scannerRexexp.FindStringSubmatch(lines[from])
-	fmt.Println(scannerIdText)
 	if len(scannerIdText) != 2 {
 		log.Fatalf("Failed to parse scanner id on input: `%v`", lines[from])
 	}
@@ -86,7 +85,6 @@ func parseScanner(lines []string, from int) (Scanner, int) {
 
 func PartOne(scanners []Scanner) int {
 	unifiedScanners := unifyScanners(scanners)
-	fmt.Printf("Unified scanners: %v\n", unifiedScanners)
 	distinctBeacons := map[Vec3]struct{}{}
 	for i := range unifiedScanners {
 		for beacon := range unifiedScanners[i].Beacons {
@@ -96,33 +94,37 @@ func PartOne(scanners []Scanner) int {
 	return len(distinctBeacons)
 }
 
-func unifyScanners(scanners []Scanner) []Scanner {
-	unifiedScanners := []Scanner{scanners[0]} // we start coordinate system from the zeroth scanner
-	resolverQueue := []int{0}                 // all the scanners we have resolved, and now can be used to resolve others
-	resolvedScanners := map[int]struct{}{}
-	resolvedScanners[0] = struct{}{}
-
-	for len(resolvedScanners) < len(scanners) {
-		if len(resolverQueue) == 0 {
-			fmt.Println("Oh-oh no more resolves available")
-			break
+func allTrue(input []bool) bool {
+	for _, val := range input {
+		if !val {
+			return false
 		}
+	}
+	return true
+}
+
+func unifyScanners(scanners []Scanner) []Scanner {
+	unifiedScanners := make([]Scanner, len(scanners))
+	// we start coordinate system from the zeroth scanner all the scanners we have resolved, and now can be used to resolve others
+	unifiedScanners[0] = scanners[0]
+	resolverQueue := []int{0}
+	resolvedScanners := make([]bool, len(scanners))
+	resolvedScanners[0] = true
+
+	for !allTrue(resolvedScanners) {
 		resolveUsingScannerId := resolverQueue[0]
 		resolverQueue = resolverQueue[1:]
 
 		for toResolveScannerId := 0; toResolveScannerId < len(scanners); toResolveScannerId++ {
-			_, resolved := resolvedScanners[toResolveScannerId]
-			if resolved {
+			if resolvedScanners[toResolveScannerId] {
 				continue
 			}
-			fmt.Printf("Trying to resolve %v using %v\n", toResolveScannerId, resolveUsingScannerId)
-			resolved, resolvedBeaconPositions := tryResolveBeaconPositions(scanners[resolveUsingScannerId].Beacons, scanners[toResolveScannerId].Beacons)
+			// fmt.Printf("Trying to resolve %v using %v\n", toResolveScannerId, resolveUsingScannerId)
+			resolved, resolvedBeaconPositions, _ := tryResolveBeaconPositions(unifiedScanners[resolveUsingScannerId].Beacons, scanners[toResolveScannerId].Beacons)
 			if resolved {
-				fmt.Println("Resolved")
-				// fmt.Printf("Resolved beacon positions: %v\n", resolvedBeaconPositions)
 				resolverQueue = append(resolverQueue, toResolveScannerId)
-				resolvedScanners[toResolveScannerId] = struct{}{}
-				unifiedScanners = append(unifiedScanners, Scanner{scanners[toResolveScannerId].Id, resolvedBeaconPositions})
+				resolvedScanners[toResolveScannerId] = true
+				unifiedScanners[toResolveScannerId] = Scanner{scanners[toResolveScannerId].Id, resolvedBeaconPositions}
 			}
 		}
 	}
@@ -130,23 +132,22 @@ func unifyScanners(scanners []Scanner) []Scanner {
 	return unifiedScanners
 }
 
-func tryResolveBeaconPositions(resolveUsingBeacons map[Vec3]struct{}, toResolveBeacons map[Vec3]struct{}) (bool, map[Vec3]struct{}) {
+func tryResolveBeaconPositions(resolveUsingBeacons map[Vec3]struct{}, toResolveBeacons map[Vec3]struct{}) (bool, map[Vec3]struct{}, Vec3) {
 	transformers := getTransformers()
 	for i := 0; i < len(transformers); i++ {
 		remappedBeacons := remapCoordinates(toResolveBeacons, transformers[i])
 		for pointA := range resolveUsingBeacons {
 			for pointB := range remappedBeacons {
-				delta := pointA.Sub(pointB)
-				adjustedBeacons := adjustCoordinates(remappedBeacons, delta)
-				// fmt.Printf("Adjusted beacon candidates: %v\n", adjustedBeacons)
+				scannerCenter := pointA.Sub(pointB)
+				adjustedBeacons := adjustCoordinates(remappedBeacons, scannerCenter)
 				scannerResolved := atLeastTwelveOverlap(resolveUsingBeacons, adjustedBeacons)
 				if scannerResolved {
-					return true, adjustedBeacons
+					return true, adjustedBeacons, scannerCenter
 				}
 			}
 		}
 	}
-	return false, map[Vec3]struct{}{}
+	return false, map[Vec3]struct{}{}, Vec3{}
 }
 
 type Transformer [3][3]int
