@@ -32,8 +32,9 @@ func (v Vec3) Neg() Vec3 {
 }
 
 type Scanner struct {
-	Id      int
-	Beacons map[Vec3]struct{}
+	Id       int
+	Beacons  map[Vec3]struct{}
+	Location Vec3
 }
 
 func ParseInput(lines []string) []Scanner {
@@ -80,11 +81,10 @@ func parseScanner(lines []string, from int) (Scanner, int) {
 		}
 		beacons[Vec3{coordinates[0], coordinates[1], coordinates[2]}] = struct{}{}
 	}
-	return Scanner{scannerId, beacons}, i
+	return Scanner{scannerId, beacons, Vec3{}}, i
 }
 
-func PartOne(scanners []Scanner) int {
-	unifiedScanners := unifyScanners(scanners)
+func PartOne(unifiedScanners []Scanner) int {
 	distinctBeacons := map[Vec3]struct{}{}
 	for i := range unifiedScanners {
 		for beacon := range unifiedScanners[i].Beacons {
@@ -120,11 +120,11 @@ func unifyScanners(scanners []Scanner) []Scanner {
 				continue
 			}
 			// fmt.Printf("Trying to resolve %v using %v\n", toResolveScannerId, resolveUsingScannerId)
-			resolved, resolvedBeaconPositions, _ := tryResolveBeaconPositions(unifiedScanners[resolveUsingScannerId].Beacons, scanners[toResolveScannerId].Beacons)
+			resolved, resolvedBeaconPositions, scannerCenter := tryResolveBeaconPositions(unifiedScanners[resolveUsingScannerId].Beacons, scanners[toResolveScannerId].Beacons)
 			if resolved {
 				resolverQueue = append(resolverQueue, toResolveScannerId)
 				resolvedScanners[toResolveScannerId] = true
-				unifiedScanners[toResolveScannerId] = Scanner{scanners[toResolveScannerId].Id, resolvedBeaconPositions}
+				unifiedScanners[toResolveScannerId] = Scanner{scanners[toResolveScannerId].Id, resolvedBeaconPositions, scannerCenter}
 			}
 		}
 	}
@@ -232,6 +232,27 @@ func atLeastTwelveOverlap(beaconSetLHS, beaconSetRHS map[Vec3]struct{}) bool {
 	return overlapCount >= 12
 }
 
+func PartTwo(unifiedScanners []Scanner) int {
+	maxManhattanDistance := 0
+	for i := 0; i < len(unifiedScanners)-1; i++ {
+		for j := i + 1; j < len(unifiedScanners); j++ {
+			delta := unifiedScanners[i].Location.Sub(unifiedScanners[j].Location)
+			distance := 0
+			for _, v := range delta {
+				if v < 0 {
+					distance -= v
+				} else {
+					distance += v
+				}
+			}
+			if distance > maxManhattanDistance {
+				maxManhattanDistance = distance
+			}
+		}
+	}
+	return maxManhattanDistance
+}
+
 func main() {
 	scanner := bufio.NewScanner(os.Stdin)
 	lines := []string{}
@@ -241,5 +262,7 @@ func main() {
 	}
 
 	scanners := ParseInput(lines)
-	fmt.Printf("The number of distinct beacons: %v\n", PartOne(scanners))
+	unifiedScanners := unifyScanners(scanners)
+	fmt.Printf("The number of distinct beacons: %v\n", PartOne(unifiedScanners))
+	fmt.Printf("The largest Manhattan distance between scanners: %v\n", PartTwo(unifiedScanners))
 }
