@@ -9,7 +9,7 @@ import (
 func ParseInput(lines []string) []int {
 	data := []int{}
 
-	numberRegexp := regexp.MustCompile("\\d+")
+	numberRegexp := regexp.MustCompile(`\d+`)
 
 	for _, line := range lines {
 
