@@ -21,12 +21,16 @@ func (r Range) Overlap(other Range) bool {
 	return (r.F <= other.F && other.F <= r.L) || (r.F <= other.L && other.L <= r.L) || (r.F > other.F && other.L > r.L)
 }
 
+func (r Range) Contains(other Range) bool {
+	return (r.F <= other.F && other.L <= r.L)
+}
+
 func (r Range) Length() int {
 	return 1 + r.L - r.F
 }
 
 // Cut the ranges into pieces based on the boundary points, if they overlap in any way.
-// It doesn't matter which piece does or does not overlap.
+// It doesn't matter which piece do or do not overlap.
 // May produce -1 length Ranges, which can, be ignored, but they help us identify the overlapping segment.
 // Either there is exactly one Range result, when we have a perfect overlap, or there will always be 3 segments,
 // in which case always the middle one has to be the overlap.
@@ -80,23 +84,27 @@ func ParseInput(lines []string) []Instruction {
 	return instructions
 }
 
-type Voxel struct {
+type Cuboid struct {
 	X Range
 	Y Range
 	Z Range
 }
 
-func (v Voxel) Overlap(rhs Voxel) bool {
+func (v *Cuboid) Volume() int {
+	return v.X.Length() * v.Y.Length() * v.Z.Length()
+}
+
+func (v Cuboid) Overlap(rhs Cuboid) bool {
 	return v.X.Overlap(rhs.X) && v.Y.Overlap(rhs.Y) && v.Z.Overlap(rhs.Z)
 }
 
-func (v Voxel) Intersect(rhs Voxel) (bool, Voxel) {
+func (v Cuboid) Intersect(rhs Cuboid) (bool, Cuboid) {
 	x := v.X.Chop(rhs.X)
 	y := v.Y.Chop(rhs.Y)
 	z := v.Z.Chop(rhs.Z)
 
 	if len(x) == 0 || len(y) == 0 || len(z) == 0 {
-		return false, Voxel{}
+		return false, Cuboid{}
 	}
 
 	overlappingX := x[0]
@@ -111,19 +119,68 @@ func (v Voxel) Intersect(rhs Voxel) (bool, Voxel) {
 	if len(z) == 3 {
 		overlappingZ = z[1]
 	}
-	return true, Voxel{overlappingX, overlappingY, overlappingZ}
+	return true, Cuboid{overlappingX, overlappingY, overlappingZ}
+}
+
+// It will chop up cuboid v using rhs as a guide to identify the pieces
+// of v that are outside of rhs, and within.
+func (v Cuboid) SubdivideWith(rhs Cuboid) (bool, []Cuboid, []Cuboid) {
+	x := v.X.Chop(rhs.X)
+	xPieces := []Range{}
+	for i := range x {
+		if x[i].Length() <= 0 || !v.X.Contains(x[i]) {
+			continue
+		}
+		xPieces = append(xPieces, x[i])
+	}
+	y := v.Y.Chop(rhs.Y)
+	yPieces := []Range{}
+	for i := range y {
+		if y[i].Length() <= 0 || !v.Y.Contains(y[i]) {
+			continue
+		}
+		yPieces = append(yPieces, y[i])
+	}
+	z := v.Z.Chop(rhs.Z)
+	zPieces := []Range{}
+	for i := range z {
+		if z[i].Length() <= 0 || !v.Z.Contains(z[i]) {
+			continue
+		}
+		zPieces = append(zPieces, z[i])
+	}
+
+	if len(xPieces) == 0 || len(yPieces) == 0 || len(zPieces) == 0 {
+		return false, []Cuboid{}, []Cuboid{}
+	}
+
+	intersection := []Cuboid{}
+	difference := []Cuboid{}
+	for xi := range xPieces {
+		for yi := range yPieces {
+			for zi := range zPieces {
+				cuboid := Cuboid{xPieces[xi], yPieces[yi], zPieces[zi]}
+				if rhs.Overlap(cuboid) {
+					intersection = append(intersection, cuboid)
+				} else {
+					difference = append(difference, cuboid)
+				}
+			}
+		}
+	}
+	return true, intersection, difference
 }
 
 type Octree struct {
 	on       bool
 	children []Octree
-	voxel    Voxel
+	cuboid    Cuboid
 }
 
 func (o Octree) OnCount() int {
 	if o.leaf() {
 		if o.on {
-			return o.voxel.X.Length() * o.voxel.Y.Length() * o.voxel.Z.Length()
+			return o.cuboid.X.Length() * o.cuboid.Y.Length() * o.cuboid.Z.Length()
 		} else {
 			return 0
 		}
@@ -135,16 +192,17 @@ func (o Octree) OnCount() int {
 	return sum
 }
 
-func (o *Octree) Modify(v Voxel, turnOn bool) {
+func (o *Octree) Modify(v Cuboid, turnOn bool) {
+	if o.cuboid == v {
+		o.on = turnOn
+		o.children = []Octree{}
+		return
+	}
 	if o.leaf() {
-		if o.voxel == v {
-			o.on = turnOn
-			return
-		}
 		o.subdivide()
 	}
 	for i := range o.children {
-		ok, subVoxel := o.children[i].voxel.Intersect(v)
+		ok, subVoxel := o.children[i].cuboid.Intersect(v)
 		if !ok {
 			continue
 		}
@@ -153,25 +211,25 @@ func (o *Octree) Modify(v Voxel, turnOn bool) {
 }
 
 func (o *Octree) subdivide() {
-	xF := o.voxel.X.F
-	xL := o.voxel.X.L
-	yF := o.voxel.Y.F
-	yL := o.voxel.Y.L
-	zF := o.voxel.Z.F
-	zL := o.voxel.Z.L
+	xF := o.cuboid.X.F
+	xL := o.cuboid.X.L
+	yF := o.cuboid.Y.F
+	yL := o.cuboid.Y.L
+	zF := o.cuboid.Z.F
+	zL := o.cuboid.Z.L
 
-	xMid := xF + (o.voxel.X.Length() / 2) - 1
-	yMid := yF + (o.voxel.Y.Length() / 2) - 1
-	zMid := zF + (o.voxel.Z.Length() / 2) - 1
+	xMid := xF + (o.cuboid.X.Length() / 2) - 1
+	yMid := yF + (o.cuboid.Y.Length() / 2) - 1
+	zMid := zF + (o.cuboid.Z.Length() / 2) - 1
 
-	bottomCloseLeft := Octree{o.on, []Octree{}, Voxel{Range{xF, xMid}, Range{yF, yMid}, Range{zF, zMid}}}
-	bottomCloseRight := Octree{o.on, []Octree{}, Voxel{Range{xMid + 1, xL}, Range{yF, yMid}, Range{zF, zMid}}}
-	bottomFarLeft := Octree{o.on, []Octree{}, Voxel{Range{xF, xMid}, Range{yMid + 1, yL}, Range{zF, zMid}}}
-	bottomFarRight := Octree{o.on, []Octree{}, Voxel{Range{xMid + 1, xL}, Range{yMid + 1, yL}, Range{zF, zMid}}}
-	topCloseLeft := Octree{o.on, []Octree{}, Voxel{Range{xF, xMid}, Range{yF, yMid}, Range{zMid + 1, zL}}}
-	topCloseRight := Octree{o.on, []Octree{}, Voxel{Range{xMid + 1, xL}, Range{yF, yMid}, Range{zMid + 1, zL}}}
-	topFarLeft := Octree{o.on, []Octree{}, Voxel{Range{xF, xMid}, Range{yMid + 1, yL}, Range{zMid + 1, zL}}}
-	topFarRight := Octree{o.on, []Octree{}, Voxel{Range{xMid + 1, xL}, Range{yMid + 1, yL}, Range{zMid + 1, zL}}}
+	bottomCloseLeft := Octree{o.on, []Octree{}, Cuboid{Range{xF, xMid}, Range{yF, yMid}, Range{zF, zMid}}}
+	bottomCloseRight := Octree{o.on, []Octree{}, Cuboid{Range{xMid + 1, xL}, Range{yF, yMid}, Range{zF, zMid}}}
+	bottomFarLeft := Octree{o.on, []Octree{}, Cuboid{Range{xF, xMid}, Range{yMid + 1, yL}, Range{zF, zMid}}}
+	bottomFarRight := Octree{o.on, []Octree{}, Cuboid{Range{xMid + 1, xL}, Range{yMid + 1, yL}, Range{zF, zMid}}}
+	topCloseLeft := Octree{o.on, []Octree{}, Cuboid{Range{xF, xMid}, Range{yF, yMid}, Range{zMid + 1, zL}}}
+	topCloseRight := Octree{o.on, []Octree{}, Cuboid{Range{xMid + 1, xL}, Range{yF, yMid}, Range{zMid + 1, zL}}}
+	topFarLeft := Octree{o.on, []Octree{}, Cuboid{Range{xF, xMid}, Range{yMid + 1, yL}, Range{zMid + 1, zL}}}
+	topFarRight := Octree{o.on, []Octree{}, Cuboid{Range{xMid + 1, xL}, Range{yMid + 1, yL}, Range{zMid + 1, zL}}}
 
 	o.children = []Octree{
 		bottomCloseLeft,
@@ -195,6 +253,10 @@ type Point struct {
 	Z int
 }
 
+// The Octree based solution is more than sufficient for part one, but then again a brute force solution worked as well.
+// For part two it has no chance of working though, because big cubes would require so much space partitioning that
+// we easily run out of memory even for small tests.
+// Leaving this part using the Octree implementation, because this was the first time I have used the technique.
 func PartOne(instructions []Instruction) int {
 	xMin := math.MaxInt
 	xMax := math.MinInt
@@ -214,42 +276,48 @@ func PartOne(instructions []Instruction) int {
 		zMin = min(zMin, instruction.Z.F)
 		zMax = max(zMax, instruction.Z.L)
 	}
-	octree := Octree{false, []Octree{}, Voxel{Range{xMin, xMax}, Range{yMin, yMax}, Range{zMin, zMax}}}
-
+	octree := Octree{false, []Octree{}, Cuboid{Range{xMin, xMax}, Range{yMin, yMax}, Range{zMin, zMax}}}
 	for _, instruction := range instructions {
 		if instruction.X.F < -50 || instruction.Y.F < -50 || instruction.Z.F < -50 ||
 			instruction.X.F > 50 || instruction.Y.F > 50 || instruction.Z.F > 50 {
 			continue
 		}
 
-		voxel := Voxel{instruction.X, instruction.Y, instruction.Z}
-		octree.Modify(voxel, instruction.SwitchOn)
+		cuboid := Cuboid{instruction.X, instruction.Y, instruction.Z}
+		octree.Modify(cuboid, instruction.SwitchOn)
 	}
 	return octree.OnCount()
 }
 
+// A simple algorithm where we just cut turned on cubes into smaller cubes if the instruction
+// would introduce a cube that would collide. Add the differences and discard the intersection.
+// Then if the instruction was to turn on the piece, we add it back.
 func PartTwo(instructions []Instruction) int {
-	xMin := math.MaxInt
-	xMax := math.MinInt
-	yMin := math.MaxInt
-	yMax := math.MinInt
-	zMin := math.MaxInt
-	zMax := math.MinInt
-	for _, instruction := range instructions {
-		xMin = min(xMin, instruction.X.F)
-		xMax = max(xMax, instruction.X.L)
-		yMin = min(yMin, instruction.Y.F)
-		yMax = max(yMax, instruction.Y.L)
-		zMin = min(zMin, instruction.Z.F)
-		zMax = max(zMax, instruction.Z.L)
+	cuboids := map[Cuboid]struct{}{}
+	for i := range instructions {
+		tmp := map[Cuboid]struct{}{}
+		candidate := Cuboid{instructions[i].X, instructions[i].Y, instructions[i].Z}
+		for v := range cuboids {
+			ok, _, differences := v.SubdivideWith(candidate)
+			if !ok {
+				tmp[v] = struct{}{}
+				continue
+			}
+			for di := range differences {
+				tmp[differences[di]] = struct{}{}
+			}
+		}
+		if instructions[i].SwitchOn {
+			tmp[candidate] = struct{}{}
+		}
+		cuboids = tmp
 	}
-	octree := Octree{false, []Octree{}, Voxel{Range{xMin, xMax}, Range{yMin, yMax}, Range{zMin, zMax}}}
 
-	for _, instruction := range instructions {
-		voxel := Voxel{instruction.X, instruction.Y, instruction.Z}
-		octree.Modify(voxel, instruction.SwitchOn)
+	onCount := 0
+	for cuboid := range cuboids {
+		onCount += cuboid.Volume()
 	}
-	return octree.OnCount()
+	return onCount
 }
 
 func main() {
@@ -263,5 +331,5 @@ func main() {
 	instructions := ParseInput(lines)
 
 	fmt.Printf("The number of ON cubes after the initialization sequence: %v\n", PartOne(instructions))
-	// fmt.Printf("The number of ON cubes after the reboot sequence: %v\n", PartTwo(instructions))
+	fmt.Printf("The number of ON cubes after the reboot sequence: %v\n", PartTwo(instructions))
 }
