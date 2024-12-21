@@ -1,14 +1,14 @@
 #[derive(Debug, Clone)]
 struct Machine {
-    pub reg_a: i32,
-    pub reg_b: i32,
-    pub reg_c: i32,
+    pub reg_a: u64,
+    pub reg_b: u64,
+    pub reg_c: u64,
     pub ip: usize,
-    pub instructions: Vec<i32>,
+    pub instructions: Vec<u64>,
 }
 
 impl Machine {
-    pub fn combo(&self, operand: i32) -> i32 {
+    pub fn combo(&self, operand: u64) -> u64 {
         match operand {
             0 | 1 | 2 | 3 => operand,
             4 => self.reg_a,
@@ -18,14 +18,14 @@ impl Machine {
         }
     }
 
-    pub fn simulate(&mut self) -> Option<i32> {
+    pub fn simulate(&mut self) -> Option<u64> {
         while self.ip < self.instructions.len() {
             let instruction = self.instructions[self.ip];
             let operand = self.instructions[self.ip + 1];
             self.ip += 2;
 
             match instruction {
-                0 => self.reg_a = self.reg_a / 2i32.pow(self.combo(operand) as u32),
+                0 => self.reg_a = self.reg_a / 2u64.pow(self.combo(operand) as u32),
                 1 => self.reg_b = self.reg_b ^ operand,
                 2 => self.reg_b = self.combo(operand) % 8,
                 3 => {
@@ -36,10 +36,10 @@ impl Machine {
                 }
                 4 => self.reg_b = self.reg_b ^ self.reg_c,
                 5 => {
-                    return Some(self.combo(operand) % 8);
+                    return Some(self.combo(operand) as u64 % 8);
                 }
-                6 => self.reg_b = self.reg_a / 2i32.pow(self.combo(operand) as u32),
-                7 => self.reg_c = self.reg_a / 2i32.pow(self.combo(operand) as u32),
+                6 => self.reg_b = self.reg_a / 2u64.pow(self.combo(operand) as u32),
+                7 => self.reg_c = self.reg_a / 2u64.pow(self.combo(operand) as u32),
                 _ => panic!("Unexpected instruction: {}", instruction),
             }
         }
@@ -90,28 +90,59 @@ fn part_one(mut machine: Machine) -> String {
     })
 }
 
-fn part_two(machine: Machine) -> i32 {
-    let mut working_machine = machine.clone();
+fn part_two(machine: Machine) -> u64 {
+    // we immediately jump to the first number that will have the required digits
+    let mut candidate_a = 8u64.pow(machine.instructions.len() as u32 - 1);
 
-    let mut i = 0;
+    let mut cracking_digit = machine.instructions.len() as u64 - 1;
     loop {
-        working_machine = machine.clone();
-        working_machine.reg_a = i;
+        loop {
+            let mut checking_machine = machine.clone();
+            checking_machine.reg_a = candidate_a;
 
-        let mut index = 0;
-        while let Some(value) = working_machine.simulate() {
-            if machine.instructions[index] != value {
-                break;
+            // simulate
+            let mut output_values = Vec::new();
+
+            while let Some(value) = checking_machine.simulate() {
+                output_values.push(value);
             }
-            index += 1;
+
+            if output_values[cracking_digit as usize]
+                == machine.instructions[cracking_digit as usize]
+            {
+                break;
+            } else {
+                candidate_a += 8u64.pow(cracking_digit as u32);
+            }
         }
-        if index == machine.instructions.len() {
+
+        if let Some(next_digit) = cracking_digit.checked_sub(1) {
+            cracking_digit = next_digit;
+        } else {
             break;
         }
-        i += 1;
     }
 
-    i
+    // we are close, increase by one until we hit the target
+    loop {
+        let mut checking_machine = machine.clone();
+        checking_machine.reg_a = candidate_a;
+
+        // simulate
+        let mut output_values = Vec::new();
+
+        while let Some(value) = checking_machine.simulate() {
+            output_values.push(value);
+        }
+
+        if output_values == machine.instructions {
+            break;
+        } else {
+            candidate_a += 1;
+        }
+    }
+
+    candidate_a
 }
 
 fn main() {
