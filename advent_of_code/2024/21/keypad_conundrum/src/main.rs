@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::io;
+use std::{io, usize};
 
 fn char_to_keypad(c: char) -> (i32, i32) {
     match c {
@@ -147,20 +147,74 @@ fn encode(
     encodings.into_iter().map(|entry| entry.0).collect()
 }
 
+fn part_two(codes: &Vec<String>) -> usize {
+    codes
+        .iter()
+        .map(|code| {
+            let code_val = code[0..code.len() - 1].parse::<usize>().unwrap();
+
+            let mut minimal_cost = usize::MAX;
+            let mut cache = HashMap::new();
+            let arrows = encode(code, key_code_to_arrow_code, (3, 2));
+            for candidate in arrows {
+                let mut cost = 0;
+                // Adding a starting "A" so, the starting position is set appropriately
+                let candidate = String::from("A") + &candidate;
+                for window in candidate.chars().collect::<Vec<char>>().windows(2) {
+                    cost += minimal_move_cost_after(24, window[0], window[1], &mut cache);
+                }
+                minimal_cost = std::cmp::min(minimal_cost, cost);
+            }
+
+            code_val * minimal_cost
+        })
+        .sum()
+}
+
+// Depth of zero still means 1 conversion.
+// So you need to call it with target depth-1.
+fn minimal_move_cost_after(
+    depth: usize,
+    from: char,
+    to: char,
+    cache: &mut HashMap<(usize, char, char), usize>,
+) -> usize {
+    let cache_key = (depth, from, to);
+    if let Some(minimal_cost) = cache.get(&cache_key) {
+        return *minimal_cost;
+    }
+
+    let at = char_to_dir_pad(from);
+
+    let arrows = arrow_code_to_arrow_code(to, at).0;
+    let minimal_cost = if depth == 0 {
+        arrows.iter().map(|encoding| encoding.len()).min().unwrap()
+    } else {
+        let mut minimal_cost = usize::MAX;
+        for candidate in arrows {
+            let mut cost = 0;
+            // Adding a starting "A" so, the starting position is set appropriately
+            let candidate = String::from("A") + &candidate;
+            for window in candidate.chars().collect::<Vec<char>>().windows(2) {
+                cost += minimal_move_cost_after(depth - 1, window[0], window[1], cache);
+            }
+            minimal_cost = std::cmp::min(minimal_cost, cost);
+        }
+        minimal_cost
+    };
+    cache.insert(cache_key, minimal_cost);
+
+    minimal_cost
+}
+
 fn main() {
     let codes = parse_input();
 
-    // println!(
-    //     "lala {:?}",
-    //     encode(
-    //         &String::from("<A^A>^^AvvvA"),
-    //         arrow_code_to_arrow_code,
-    //         (0, 2)
-    //     )
-    // );
-    // println!("{:?}", arrow_code_to_arrow_code('<', (0, 2)));
-
-    println!("{}", part_one(&codes));
+    println!("The sum of the complexities: {}", part_one(&codes));
+    println!(
+        "The sum of the complexities, after 25 levels of indirection: {}",
+        part_two(&codes)
+    );
 }
 
 // 3
