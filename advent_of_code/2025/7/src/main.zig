@@ -1,7 +1,5 @@
 const std = @import("std");
 
-const Op = enum { plus, mul };
-
 pub fn main() !void {
     var threaded: std.Io.Threaded = .init_single_threaded;
     const io = threaded.io();
