@@ -25,10 +25,6 @@ pub fn main() !void {
         }
     }
 
-    for (lines.items) |line| {
-        std.debug.print("{any}\n", .{line});
-    }
-
     var adjacency_list = std.AutoHashMap(usize, std.AutoHashMap(usize, u1)).init(allocator);
     defer adjacency_list.deinit();
 
@@ -37,20 +33,7 @@ pub fn main() !void {
 
     try lines_to_encoded_array_list(allocator, lines.items, &node_encoder, &adjacency_list);
 
-    for (node_encoder.items) |node| {
-        std.debug.print("{s}\n", .{node.items});
-    }
-
-    for (0..node_encoder.items.len) |key| {
-        std.debug.print("{}({s}) =>\n\t", .{ key, node_encoder.items[key].items });
-        var iterator = adjacency_list.get(key).?.keyIterator();
-        while (iterator.next()) |id| {
-            std.debug.print("{}({s}),", .{ id.*, node_encoder.items[id.*].items });
-        }
-        std.debug.print("\n", .{});
-    }
-
-    // std.debug.print("The many different paths lead from 'you' to 'out': {d}\n", .{try part_one(allocator, adjacency_list, node_encoder)});
+    std.debug.print("The many different paths lead from 'you' to 'out': {d}\n", .{try part_one(allocator, adjacency_list, node_encoder)});
     std.debug.print("Paths from 'svr' to 'out' through 'fft' and 'dac': {d}\n", .{try part_two(allocator, node_encoder, adjacency_list)});
 }
 
@@ -97,30 +80,29 @@ fn find_node_id(node_encoder: std.ArrayList(std.ArrayList(u8)), node_name: []con
             return i;
         }
     }
-    std.debug.print("{s}\n", .{node_name});
     return null;
 }
 
 // Here we make the reasonable assumption that the input is of the form of a DAG.
 // Otherwise there can be no solution anyways.
 // Simple BFS tracing all paths at once from 'you' until 'out'.
-fn part_one(allocator: std.mem.Allocator, adjacency_list: std.AutoHashMap(usize, std.AutoHashMap(usize, u1)), node_encoder: std.ArrayList(std.ArrayList(u8))) error{OutOfMemory}!u32 {
+fn part_one(allocator: std.mem.Allocator, adjacency_list: std.AutoHashMap(usize, std.AutoHashMap(usize, u1)), node_encoder: std.ArrayList(std.ArrayList(u8))) error{OutOfMemory}!u64 {
     const from = find_node_id(node_encoder, "you").?;
     const to = find_node_id(node_encoder, "out").?;
 
-    return find_paths_ignoring(allocator, adjacency_list, from, to, null);
+    return find_paths_between(allocator, adjacency_list, from, to);
 }
 
-fn find_paths_ignoring(allocator: std.mem.Allocator, adjacency_list: std.AutoHashMap(usize, std.AutoHashMap(usize, u1)), from: usize, to: usize, ignore: ?usize) error{OutOfMemory}!u32 {
-    var next_nodes = std.AutoHashMap(usize, u32).init(allocator);
+fn find_paths_between(allocator: std.mem.Allocator, adjacency_list: std.AutoHashMap(usize, std.AutoHashMap(usize, u1)), from: usize, to: usize) error{OutOfMemory}!u64 {
+    var next_nodes = std.AutoHashMap(usize, u64).init(allocator);
     defer next_nodes.deinit();
 
-    var current_nodes = std.AutoHashMap(usize, u32).init(allocator);
+    var current_nodes = std.AutoHashMap(usize, u64).init(allocator);
     defer current_nodes.deinit();
 
     try current_nodes.put(from, 1);
 
-    var path_count_to_out: u32 = 0;
+    var path_count_to_out: u64 = 0;
 
     var seen = std.AutoHashMap(usize, u1).init(allocator);
     defer seen.deinit();
@@ -134,17 +116,13 @@ fn find_paths_ignoring(allocator: std.mem.Allocator, adjacency_list: std.AutoHas
 
             var neighbors_id_iterator = neighbors.keyIterator();
             while (neighbors_id_iterator.next()) |neighbor_id| {
-                if (ignore != null and neighbor_id.* == ignore.?) {
-                    continue;
-                }
                 if (seen.contains(neighbor_id.*)) {
                     continue;
                 }
                 if (!next_nodes.contains(neighbor_id.*)) {
                     try next_nodes.put(neighbor_id.*, 0);
                 }
-                
-                // std.debug.print("{}\n", .{next_nodes.getPtr(neighbor_id.*).?.*});
+
                 next_nodes.getPtr(neighbor_id.*).?.* += entry.value_ptr.*;
                 if (neighbor_id.* == to) {
                     path_count_to_out += entry.value_ptr.*;
@@ -152,29 +130,30 @@ fn find_paths_ignoring(allocator: std.mem.Allocator, adjacency_list: std.AutoHas
             }
         }
 
-        std.mem.swap(std.AutoHashMap(usize, u32), &current_nodes, &next_nodes);
+        std.mem.swap(std.AutoHashMap(usize, u64), &current_nodes, &next_nodes);
     }
 
     return path_count_to_out;
 }
 
-fn part_two(allocator: std.mem.Allocator, node_encoder: std.ArrayList(std.ArrayList(u8)), adjacency_list: std.AutoHashMap(usize, std.AutoHashMap(usize, u1))) error{OutOfMemory}!u32 {
+fn part_two(allocator: std.mem.Allocator, node_encoder: std.ArrayList(std.ArrayList(u8)), adjacency_list: std.AutoHashMap(usize, std.AutoHashMap(usize, u1))) error{OutOfMemory}!u64 {
     const svr = find_node_id(node_encoder, "svr").?;
     const fft = find_node_id(node_encoder, "fft").?;
     const dac = find_node_id(node_encoder, "dac").?;
     const out = find_node_id(node_encoder, "out").?;
 
-    const from_svr_to_fft = try find_paths_ignoring(allocator, adjacency_list, svr, fft, dac);
-    const from_fft_to_dac = try find_paths_ignoring(allocator, adjacency_list, fft, dac, null);
+    const from_svr_to_fft = try find_paths_between(allocator, adjacency_list, svr, fft);
+    const from_fft_to_dac = try find_paths_between(allocator, adjacency_list, fft, dac);
+    const from_dac_to_out = try find_paths_between(allocator, adjacency_list, dac, out);
 
-    const from_svr_to_dac = try find_paths_ignoring(allocator, adjacency_list, svr, dac, fft);
-    const from_dac_to_fft = try find_paths_ignoring(allocator, adjacency_list, dac, fft, null);
-
-    const from_fft_to_out = try find_paths_ignoring(allocator, adjacency_list, dac, out, dac);
-    const from_dac_to_out = try find_paths_ignoring(allocator, adjacency_list, dac, out, fft);
+    // As we have established this cannot happen. Or there would be a loop.
+    // const from_svr_to_dac = try find_paths_between(allocator, adjacency_list, svr, dac);
+    // const from_dac_to_fft = try find_paths_between(allocator, adjacency_list, dac, fft);
+    // const from_fft_to_out = try find_paths_between(allocator, adjacency_list, fft, out);
 
     const first_fft = from_svr_to_fft * from_fft_to_dac * from_dac_to_out;
-    const first_dac = from_svr_to_dac * from_dac_to_fft * from_fft_to_out;
+    // const first_dac = from_svr_to_dac * from_dac_to_fft * from_fft_to_out;
 
-    return first_fft + first_dac;
+    return first_fft;
+    // return first_fft + first_dac;
 }
