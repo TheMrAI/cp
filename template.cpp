@@ -1,23 +1,19 @@
 #include <bits/stdc++.h>
+#include <cstdint>
 
-template<typename Output, typename Iter>
-requires std::derived_from<Output, std::ostream> && std::weakly_incrementable<Iter> && std::indirectly_readable<Iter>
-auto dump_to(Output& output, Iter begin, Iter end)
-{
-  while (begin != end) {
-    output << *begin;
-    if (std::next(begin) != end) { output << ' '; }
-    ++begin;
-  }
-}
+using i64 = int64_t;
+using u64 = uint64_t;
+using i32 = int32_t;
+using u32 = uint32_t;
+using u8 = uint8_t;
 
-// Source: https://codeforces.com/blog/entry/78852
-template<typename T>
-requires std::integral<T>
-auto ceil2(T a, T b) -> T
+constexpr char brl = '\n';
+
+using namespace std;
+
+auto ceil2(i64 a, i64 b) -> i64
 {
-  if (a == 0) return 0;
-  return ((a - 1) / b) + 1;
+  return (a + b - 1) / b;
 }
 
 auto main() -> int
@@ -25,7 +21,7 @@ auto main() -> int
   std::ios::sync_with_stdio(false);
   std::cin.tie(nullptr);
 
-  auto t = int664_t{ 0 };
+  auto t = i64{ 0 };
   std::cin >> t;
   while (t--) {}
 
