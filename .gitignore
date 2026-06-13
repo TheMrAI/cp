@@ -31,6 +31,7 @@
 *.ppm
 
 # Ignore input files (as I have found out these may be protected by licensing like for advent of code)
+in
 *.in
 *.e_in
 
